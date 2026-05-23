@@ -5,7 +5,6 @@
 #
 # parser 가 PR merge 시 `{groups: [.]}` 로 wrap. 단일 RuleGroup 노드 (name + rules:).
 # 로컬 검증: `make promtool-check`.
-#
 name: hyperliquid_vpub_rule
 rules:
 - alert: VpubServiceDown

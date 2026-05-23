@@ -14,8 +14,17 @@ import (
 
 // unitConn is the slim subset of dbus.Conn that we use. Extracted as an
 // interface so tests can swap in a fake (see systemd_dbus_test.go).
+//
+// systemd splits properties across DBus interfaces:
+//   - org.freedesktop.systemd1.Unit    → ActiveState, LoadState, …
+//   - org.freedesktop.systemd1.Service → MainPID, NRestarts, …
+// GetUnitPropertiesContext returns only the Unit-interface ones; we need a
+// second call (GetUnitTypePropertiesContext, type="Service") for service-
+// specific fields. Confirmed on LSN-D13958: busctl ... .Unit MainPID returns
+// "Unknown interface or property" while .Service MainPID works.
 type unitConn interface {
 	GetUnitPropertiesContext(ctx context.Context, unit string) (map[string]interface{}, error)
+	GetUnitTypePropertiesContext(ctx context.Context, unit string, unitType string) (map[string]interface{}, error)
 	Close()
 }
 
@@ -48,15 +57,22 @@ func (p *DBusProbe) Close() {
 	}
 }
 
-func (p *DBusProbe) props() (map[string]interface{}, error) {
+func (p *DBusProbe) unitProps() (map[string]interface{}, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
 	defer cancel()
 	return p.conn.GetUnitPropertiesContext(ctx, p.unit)
 }
 
+func (p *DBusProbe) serviceProps() (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
+	defer cancel()
+	return p.conn.GetUnitTypePropertiesContext(ctx, p.unit, "Service")
+}
+
 // IsActive — FR-001. true iff ActiveState == "active".
+// ActiveState lives on the Unit interface.
 func (p *DBusProbe) IsActive() (bool, error) {
-	m, err := p.props()
+	m, err := p.unitProps()
 	if err != nil {
 		return false, err
 	}
@@ -68,18 +84,21 @@ func (p *DBusProbe) IsActive() (bool, error) {
 }
 
 // MainPID — used to count children (FR-002). 0 if unit is not running.
+// MainPID is a Service-interface property (not Unit), so we query the Service
+// type explicitly. Without this we'd silently return 0 → child_count metric
+// stuck at 0 — observed in production on LSN-D13958 2026-05-23.
 func (p *DBusProbe) MainPID() (int, error) {
-	m, err := p.props()
+	m, err := p.serviceProps()
 	if err != nil {
 		return 0, err
 	}
 	return uintToInt(m["MainPID"])
 }
 
-// NRestarts — FR-004.
+// NRestarts — FR-004. Also a Service-interface property.
 // systemd reports a uint32 here; we expose it as Counter at the metrics layer.
 func (p *DBusProbe) NRestarts() (int, error) {
-	m, err := p.props()
+	m, err := p.serviceProps()
 	if err != nil {
 		return 0, err
 	}

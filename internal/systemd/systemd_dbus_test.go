@@ -10,14 +10,24 @@ import (
 )
 
 type fakeConn struct {
-	props    map[string]interface{}
-	err      error
-	closed   bool
-	unitSeen string
+	props        map[string]interface{}  // returned from both Unit and Service interface calls
+	serviceProps map[string]interface{}  // if non-nil, used for Service-interface calls
+	err          error
+	closed       bool
+	unitSeen     string
+	typeSeen     string
 }
 
 func (f *fakeConn) GetUnitPropertiesContext(_ context.Context, unit string) (map[string]interface{}, error) {
 	f.unitSeen = unit
+	return f.props, f.err
+}
+func (f *fakeConn) GetUnitTypePropertiesContext(_ context.Context, unit, unitType string) (map[string]interface{}, error) {
+	f.unitSeen = unit
+	f.typeSeen = unitType
+	if f.serviceProps != nil {
+		return f.serviceProps, f.err
+	}
 	return f.props, f.err
 }
 func (f *fakeConn) Close() { f.closed = true }

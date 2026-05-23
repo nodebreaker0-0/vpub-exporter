@@ -1,0 +1,24 @@
+# Test_hyperliquid_VPUB_apn1 — vpub-exporter testnet target.
+# Machine: LSN-D13958 (Tokyo / apn1), user=admin, x86_64.
+# validator-publisher.service is co-located on the same machine.
+#
+# Rules live in config/rules/hyperliquid_vpub_rule.yaml (shared across all vpub
+# instances). vpub_ metric prefix is unique so the yaml rules naturally apply
+# only to instances that expose vpub_* metrics.
+#
+# To add the mainnet target later, copy this file as
+# Main_hyperliquid_VPUB_<region>.toml with labels.network = 'mainnet'.
+
+instance = 'Test_hyperliquid_VPUB_apn1'
+
+[[job_targets]]
+job_name = 'node-exporter'
+target = '64.31.51.41:59100'
+
+[[job_targets]]
+job_name = 'vpub-exporter'
+target = '64.31.51.41:8002'
+
+[labels]
+chain = 'hyperliquid'
+network = 'testnet'

@@ -23,7 +23,10 @@ RestartSec=5s
 NoNewPrivileges=yes
 ProtectSystem=full
 ProtectHome=read-only
-PrivateTmp=yes
+# PrivateTmp must be NO — publisher writes its 3 child component logs to
+# /tmp/validator-publisher/ (visor default), and we need to read those.
+# Mirrors publisher's own v-publisher.service.full PrivateTmp=false.
+PrivateTmp=no
 PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

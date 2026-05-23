@@ -1,0 +1,139 @@
+# Tier 1 alert rules for vpub-exporter (US2 — component 본업 추적).
+#
+# monitoring 레포의 parser 가 PR merge 시 `{groups: [.]}` 로 wrap 후 promtool check.
+# 따라서 이 파일은 단일 RuleGroup 노드 (name + rules:) 로 작성.
+# 라벨 컨벤션: alertEvent / alertLevel / instance / target / chain / disable_alarm 필터.
+# alertLevel 5종(critical / high / medium / low / disk) 안에서만 사용.
+#
+# **임시 임계 (R-003 / R-004 / R-005 가동 첫날 확정 후 백포트)**:
+#   - VpubBridgeRpcMajorityDown : `< 4` (메인넷 quorum, R-005 확정 후 정정)
+#   - VpubOracleStaleVote       : `> 7200` (R-004 oracle publish 주기 확정 후 정정)
+#   - 로그 패턴 매칭 (vote ok/fail/disagreement/warn/crit) 은 internal/config/config.go
+#     의 default 정규식. R-003 확정 후 env override 또는 default 정정.
+#
+# 로컬 검증: `make promtool-check`.
+name: hyperliquid_vpub_rule_tier1
+rules:
+  - alert: VpubBridgeRpcMajorityDown
+    # NOTE: 임계 4 는 R-005 확정 후 정정. 메인넷 RPC 7개 중 살아있는 수가 quorum 미만.
+    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true'}) < 4
+    for: 5m
+    labels:
+      alertEvent: "vpub:bridge:rpc_majority_down"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: RPC quorum 위태 ({{ $value }}/7)"
+      description: "{{ $labels.instance }} bridge voter Arbitrum RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)."
+
+  - alert: VpubBridgeRpcSingleDown
+    expr: vpub_bridge_rpc_up{disable_alarm!='true'} == 0
+    for: 10m
+    labels:
+      alertEvent: "vpub:bridge:rpc_single_down"
+      alertLevel: "medium"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: RPC {{ $labels.name }} 10분+ down"
+      description: "{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분 이상 응답 없음."
+
+  - alert: VpubBridgeRpcDisagreement
+    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[15m]) > 5
+    for: 2m
+    labels:
+      alertEvent: "vpub:bridge:rpc_disagreement"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: RPC disagreement 빈발 ({{ $value }}/15m)"
+      description: "{{ $labels.instance }} 15분 내 RPC 합의 실패 {{ $value }} 건 — 잘못된 vote 위험."
+
+  - alert: VpubBridgeStaleVote
+    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true'}) > 3600
+    for: 5m
+    labels:
+      alertEvent: "vpub:bridge:stale_vote"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: 1h+ 성공 vote 없음"
+      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과 — 입금 트래픽 없음 또는 RPC 문제."
+
+  - alert: VpubBridgeStaleVoteLong
+    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true'}) > 21600
+    for: 5m
+    labels:
+      alertEvent: "vpub:bridge:stale_vote_long"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: 6h+ 성공 vote 없음"
+      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상, 즉시 점검."
+
+  - alert: VpubBridgeAllFail
+    expr: |
+      (
+        increase(vpub_bridge_vote_total{status="ok",disable_alarm!='true'}[1h]) == 0
+        and
+        increase(vpub_bridge_vote_total{status="fail",disable_alarm!='true'}[1h]) > 0
+      )
+    for: 5m
+    labels:
+      alertEvent: "vpub:bridge:all_fail"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: 1h 시도 vote 전부 실패"
+      description: "{{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패 — RPC / 서명키 점검."
+
+  - alert: VpubOracleStaleVote
+    # NOTE: 임계 7200s (2h) 는 R-004 가동 첫날 oracle publish 사이클 확정 후 정정.
+    # 사이클이 30분이면 4 사이클 → 짧게 잡고, 6h 면 늘려야 함.
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 7200
+    for: 5m
+    labels:
+      alertEvent: "vpub:oracle:stale_vote"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub oracle: 2h+ 성공 vote 없음 (임시 임계)"
+      description: "{{ $labels.instance }} 마지막 reference oracle update 이후 2h+. 임계는 R-004 확정 후 정정."
+
+  - alert: VpubOutcomePendingLong
+    expr: vpub_outcome_slack_msg_24h{disable_alarm!='true'} > 5
+    for: 30m
+    labels:
+      alertEvent: "vpub:outcome:pending_long"
+      alertLevel: "medium"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub outcome: 미검토 액션 적체 ({{ $value }}/24h)"
+      description: "{{ $labels.instance }} 최근 24h outcome 채널 메시지 {{ $value }} 건 — 검토 진행 필요 (fallback 카운트, R-007 채널 ID 확정 후 정확도 ↑)."
+
+  - alert: VpubSlackTokenInvalid
+    expr: vpub_slack_api_ok{disable_alarm!='true'} == 0
+    for: 5m
+    labels:
+      alertEvent: "vpub:slack:token_invalid"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub: Slack token 만료 / API down"
+      description: "{{ $labels.instance }} auth.test 5분+ fail — publisher 가 보내는 모든 슬랙 알람이 누락 중일 수 있음."

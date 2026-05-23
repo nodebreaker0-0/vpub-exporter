@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -94,5 +95,53 @@ func TestProbe_BadURL(t *testing.T) {
 	_, err := newProbe().Probe(context.Background(), "http://127.0.0.1:1") // refused
 	if err == nil {
 		t.Fatal("expected connect error")
+	}
+}
+
+func TestProbe_HTTP401IsAuthError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("Must be authenticated!"))
+	}))
+	defer srv.Close()
+
+	_, err := newProbe().Probe(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrAuth) {
+		t.Errorf("err = %v, want errors.Is(ErrAuth)", err)
+	}
+}
+
+func TestProbe_200ButAuthBodyIsAuthError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"error":"Must be authenticated!"}`))
+	}))
+	defer srv.Close()
+
+	_, err := newProbe().Probe(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !errors.Is(err, ErrAuth) {
+		t.Errorf("err = %v, want errors.Is(ErrAuth)", err)
+	}
+}
+
+func TestProbe_500NonAuthStaysFail(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("server is on fire"))
+	}))
+	defer srv.Close()
+
+	_, err := newProbe().Probe(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if errors.Is(err, ErrAuth) {
+		t.Errorf("err = %v should NOT classify as auth", err)
 	}
 }

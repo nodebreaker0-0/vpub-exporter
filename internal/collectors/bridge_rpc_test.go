@@ -3,12 +3,15 @@ package collectors
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+
+	"github.com/bharvest/vpub-exporter/internal/rpc"
 )
 
 type fakeRPC struct {
@@ -90,6 +93,45 @@ func TestBridgeRPC_SevenRPCsThreeDown(t *testing.T) {
 	}
 	if timeouts < 1 {
 		t.Errorf("timeout count = %v, want ≥1", timeouts)
+	}
+}
+
+func TestBridgeRPC_AuthErrorIncrementsAuthStatus(t *testing.T) {
+	// R-004 / FR-005 보강: rpc.ErrAuth → status="auth_error" counter.
+	urls := map[string]string{"alchemy": "https://alchemy"}
+	f := &fakeRPC{results: map[string]struct {
+		lat time.Duration
+		err error
+	}{
+		urls["alchemy"]: {lat: 50 * time.Millisecond, err: fmt.Errorf("%w: http 401", rpc.ErrAuth)},
+	}}
+	reg := prometheus.NewRegistry()
+	c := NewBridgeRPCCollector(reg, f, []string{"alchemy"}, urls)
+	_, _ = c.Tick(context.Background())
+
+	mfs, _ := reg.Gather()
+	var auth float64
+	for _, mf := range mfs {
+		if mf.GetName() != "vpub_bridge_rpc_check_total" {
+			continue
+		}
+		for _, m := range mf.Metric {
+			isAuth := false
+			for _, l := range m.Label {
+				if l.GetName() == "status" && l.GetValue() == "auth_error" {
+					isAuth = true
+				}
+			}
+			if isAuth {
+				auth += m.GetCounter().GetValue()
+			}
+		}
+	}
+	if auth < 1 {
+		t.Errorf("auth_error counter = %v, want ≥1", auth)
+	}
+	if got := upValue(t, reg, "alchemy"); got != 0 {
+		t.Errorf("up after auth fail = %v, want 0", got)
 	}
 }
 

@@ -64,6 +64,7 @@ func NewBridgeRPCCollector(reg prometheus.Registerer, probe rpc.RPCProbe, names 
 		c.checkTot.WithLabelValues(name, "ok")
 		c.checkTot.WithLabelValues(name, "fail")
 		c.checkTot.WithLabelValues(name, "timeout")
+		c.checkTot.WithLabelValues(name, "auth_error") // R-004 — 401 / Must be authenticated
 	}
 	return c
 }
@@ -102,9 +103,13 @@ func (c *BridgeRPCCollector) Tick(ctx context.Context) (ErrorKind, error) {
 				c.up.WithLabelValues(name).Set(0)
 				kind := KindAPI
 				status := "fail"
-				if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+				switch {
+				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 					kind = KindTimeout
 					status = "timeout"
+				case errors.Is(err, rpc.ErrAuth):
+					kind = KindAPI
+					status = "auth_error"
 				}
 				c.checkTot.WithLabelValues(name, status).Inc()
 				mu.Lock()

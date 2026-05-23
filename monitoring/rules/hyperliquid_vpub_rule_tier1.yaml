@@ -5,53 +5,56 @@
 # 라벨 컨벤션: alertEvent / alertLevel / instance / target / chain / disable_alarm 필터.
 # alertLevel 5종(critical / high / medium / low / disk) 안에서만 사용.
 #
-# **임시 임계 (R-003 / R-004 / R-005 가동 첫날 확정 후 백포트)**:
-#   - VpubBridgeRpcMajorityDown : `< 4` (메인넷 quorum, R-005 확정 후 정정)
-#   - VpubOracleStaleVote       : `> 7200` (R-004 oracle publish 주기 확정 후 정정)
-#   - 로그 패턴 매칭 (vote ok/fail/disagreement/warn/crit) 은 internal/config/config.go
-#     의 default 정규식. R-003 확정 후 env override 또는 default 정정.
+# R-003/R-004 ✅ 확정 (2026-05-23 testnet 9.7h 실관찰):
+#   - oracle 평균 4.3s / max 102s   → VpubOracleStaleVote 임계 300s (high)
+#   - oracle 30m+ 정지              → VpubOracleStaleVoteLong (critical)
+#   - bridge state 5m 정체          → VpubBridgeStateStuck (high) — 가장 강한 신호
+#   - alchemy 401 (Must be authenticated!) → VpubBridgeRpcAuthError (high)
+#
+# Mainnet RPC quorum (R-005) 는 가동 직전 확정 — 현재 < 4 임시.
 #
 # 로컬 검증: `make promtool-check`.
 name: hyperliquid_vpub_rule_tier1
 rules:
   - alert: VpubBridgeRpcMajorityDown
-    # NOTE: 임계 4 는 R-005 확정 후 정정. 메인넷 RPC 7개 중 살아있는 수가 quorum 미만.
+    # NOTE: 임계 4 는 R-005 확정 후 정정.
     expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true'}) < 4
     for: 5m
     labels:
-      alertEvent: "vpub:bridge:rpc_majority_down"
+      alertEvent: "vpub:bridge:rpc_quorum"
       alertLevel: "high"
       instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
       summary: "vpub bridge: RPC quorum 위태 ({{ $value }}/7)"
-      description: "{{ $labels.instance }} bridge voter Arbitrum RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)."
+      description: "메인넷 RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)"
 
   - alert: VpubBridgeRpcSingleDown
     expr: vpub_bridge_rpc_up{disable_alarm!='true'} == 0
     for: 10m
     labels:
-      alertEvent: "vpub:bridge:rpc_single_down"
+      alertEvent: "vpub:bridge:rpc_down"
       alertLevel: "medium"
       instance: "{{ $labels.instance }}"
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub bridge: RPC {{ $labels.name }} 10분+ down"
-      description: "{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분 이상 응답 없음."
+      summary: "vpub bridge: RPC {{ $labels.name }} down"
+      description: "{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분+ down"
 
   - alert: VpubBridgeRpcDisagreement
     expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[15m]) > 5
     for: 2m
     labels:
-      alertEvent: "vpub:bridge:rpc_disagreement"
+      alertEvent: "vpub:bridge:disagreement"
       alertLevel: "high"
       instance: "{{ $labels.instance }}"
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub bridge: RPC disagreement 빈발 ({{ $value }}/15m)"
-      description: "{{ $labels.instance }} 15분 내 RPC 합의 실패 {{ $value }} 건 — 잘못된 vote 위험."
+      summary: "vpub bridge: RPC disagreement 빈발"
+      description: "15분 내 RPC 합의 실패 {{ $value }} 건 — 잘못된 vote 위험"
 
   - alert: VpubBridgeStaleVote
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true'}) > 3600
@@ -64,7 +67,7 @@ rules:
       chain: "hyperliquid"
     annotations:
       summary: "vpub bridge: 1h+ 성공 vote 없음"
-      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과 — 입금 트래픽 없음 또는 RPC 문제."
+      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과"
 
   - alert: VpubBridgeStaleVoteLong
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true'}) > 21600
@@ -77,7 +80,7 @@ rules:
       chain: "hyperliquid"
     annotations:
       summary: "vpub bridge: 6h+ 성공 vote 없음"
-      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상, 즉시 점검."
+      description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상"
 
   - alert: VpubBridgeAllFail
     expr: |
@@ -95,12 +98,12 @@ rules:
       chain: "hyperliquid"
     annotations:
       summary: "vpub bridge: 1h 시도 vote 전부 실패"
-      description: "{{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패 — RPC / 서명키 점검."
+      description: "{{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패"
 
   - alert: VpubOracleStaleVote
-    # NOTE: 임계 7200s (2h) 는 R-004 가동 첫날 oracle publish 사이클 확정 후 정정.
-    # 사이클이 30분이면 4 사이클 → 짧게 잡고, 6h 면 늘려야 함.
-    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 7200
+    # R-004 ✅ 확정 (2026-05-23 testnet 9.7h): 평균 4.3s, max 102s.
+    # 임계 300s = max 의 3x 안전마진.
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 300
     for: 5m
     labels:
       alertEvent: "vpub:oracle:stale_vote"
@@ -109,21 +112,64 @@ rules:
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub oracle: 2h+ 성공 vote 없음 (임시 임계)"
-      description: "{{ $labels.instance }} 마지막 reference oracle update 이후 2h+. 임계는 R-004 확정 후 정정."
+      summary: "vpub oracle: 5m+ 성공 vote 없음"
+      description: "{{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)"
+
+  - alert: VpubOracleStaleVoteLong
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 1800
+    for: 1m
+    labels:
+      alertEvent: "vpub:oracle:stale_vote_long"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub oracle: 30m+ 성공 vote 없음"
+      description: "{{ $labels.instance }} reference oracle 사실상 정지 — oracle 미참여 손실"
+
+  - alert: VpubBridgeStateStuck
+    # FR-012a — bridge-voter state.json 의 last_scanned_block 이 5분 이상 변하지 않음.
+    # 로그가 멈춰도 state 만 보면 알 수 있음. 가장 강한 bridge health 시그널.
+    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true'}[5m]) == 0
+    for: 2m
+    labels:
+      alertEvent: "vpub:bridge:state_stuck"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: state 진행 멈춤 (5m)"
+      description: "{{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — Arbitrum 스캔 정지"
+
+  - alert: VpubBridgeRpcAuthError
+    # FR-005 보강 — RPC HTTP 401 (Must be authenticated!) 누적 감지.
+    # testnet 5/22 에서 alchemy 키 만료로 실제 관찰. 키 교체 즉시 필요.
+    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true'}[10m]) > 5
+    for: 1m
+    labels:
+      alertEvent: "vpub:bridge:rpc_auth_error"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub bridge: RPC {{ $labels.name }} 인증 실패 빈발"
+      description: "10분 내 RPC 401 응답 {{ $value }}회 — 키 만료/오류 의심"
 
   - alert: VpubOutcomePendingLong
     expr: vpub_outcome_slack_msg_24h{disable_alarm!='true'} > 5
     for: 30m
     labels:
-      alertEvent: "vpub:outcome:pending_long"
+      alertEvent: "vpub:outcome:pending"
       alertLevel: "medium"
       instance: "{{ $labels.instance }}"
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
       summary: "vpub outcome: 미검토 액션 적체 ({{ $value }}/24h)"
-      description: "{{ $labels.instance }} 최근 24h outcome 채널 메시지 {{ $value }} 건 — 검토 진행 필요 (fallback 카운트, R-007 채널 ID 확정 후 정확도 ↑)."
+      description: "최근 24h outcome 채널 메시지 {{ $value }} 건 — 검토 진행 필요"
 
   - alert: VpubSlackTokenInvalid
     expr: vpub_slack_api_ok{disable_alarm!='true'} == 0
@@ -136,4 +182,4 @@ rules:
       chain: "hyperliquid"
     annotations:
       summary: "vpub: Slack token 만료 / API down"
-      description: "{{ $labels.instance }} auth.test 5분+ fail — publisher 가 보내는 모든 슬랙 알람이 누락 중일 수 있음."
+      description: "publisher 가 보내는 모든 슬랙 알람이 누락 중일 수 있음 (auth.test fail)"

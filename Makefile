@@ -25,13 +25,17 @@ promtool-check:
 	@if ! command -v promtool >/dev/null 2>&1; then \
 		echo "promtool not found; install: brew install prometheus"; exit 1; \
 	fi
+	@if ! command -v python3 >/dev/null 2>&1; then \
+		echo "python3 required for parser wrap simulation"; exit 1; \
+	fi
 	@if [ ! -d $(RULES_DIR) ]; then \
 		echo "no rules dir yet ($(RULES_DIR)); skipping"; \
 	else \
 		for f in $(RULES_DIR)/*.yaml; do \
 			[ -f "$$f" ] || continue; \
-			echo "promtool check rules $$f"; \
-			promtool check rules "$$f" || exit 1; \
+			echo "promtool check rules (parser-wrap) $$f"; \
+			python3 -c "import yaml,sys; doc=yaml.safe_load(open('$$f')); print(yaml.safe_dump({'groups':[doc]}, sort_keys=False))" \
+				| promtool check rules /dev/stdin || exit 1; \
 		done; \
 	fi
 

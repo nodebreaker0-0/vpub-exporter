@@ -1,55 +1,66 @@
 # Tier 0 alert rules for vpub-exporter (US1, MVP).
 #
-# This file is the staging copy. The monitoring/ repo's parser wraps the
-# content below in `{groups: [.]}` before promtool check, so for local
-# verification we use `monitoring/rules/.checked-tier0.yaml` (auto-built by
-# the Makefile promtool-check target) which adds the `groups:` wrapper.
+# monitoring 레포의 parser 가 PR merge 시 `{groups: [.]}` 로 wrap 후 promtool check.
+# 따라서 이 파일은 **단일 RuleGroup 노드** (name + rules:) 로 작성.
+# 라벨 컨벤션 (기존 monitoring/config/rules/*.yaml 일관):
+#   - alertEvent : 룰 식별자 (콜론 구분)
+#   - alertLevel : critical / high / medium / low / disk 중 하나
+#   - instance / target : Prometheus / scrape 자동 라벨
+#   - chain : "hyperliquid"
+# 인스턴스 단위로 알람 일시 끄기: 메트릭에 disable_alarm='true' 라벨 (기존 컨벤션 차용).
 #
-# alert_level routing (contracts/alerts.md §5):
-#   critical → PagerDuty + #ddoa-critical
-#   high     → #ddoa-high
-#   medium   → #ddoa-low
-#   low      → #ddoa-low
-#   disk     → #ddoa-disk
-groups:
-  - name: hyperliquid_vpub_tier0
-    rules:
-      - alert: VpubServiceDown
-        expr: vpub_service_up == 0
-        for: 1m
-        labels:
-          alert_level: critical
-          chain: hyperliquid
-        annotations:
-          summary: "vpub: v-publisher.service down"
-          description: "{{ $labels.instance }} v-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험."
+# 로컬 검증:
+#   promtool check rules monitoring/rules/hyperliquid_vpub_rule_tier0.yaml
+name: hyperliquid_vpub_rule_tier0
+rules:
+  - alert: VpubServiceDown
+    expr: vpub_service_up{disable_alarm!='true'} == 0
+    for: 1m
+    labels:
+      alertEvent: "vpub:service:down"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub: v-publisher.service down"
+      description: "{{ $labels.instance }} v-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험."
 
-      - alert: VpubChildMissing
-        expr: vpub_child_count < 3
-        for: 30s
-        labels:
-          alert_level: critical
-          chain: hyperliquid
-        annotations:
-          summary: "vpub: visor child 누락 ({{ $value }}/3)"
-          description: "{{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망."
+  - alert: VpubChildMissing
+    expr: vpub_child_count{disable_alarm!='true'} < 3
+    for: 30s
+    labels:
+      alertEvent: "vpub:visor:child_missing"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub: visor child 누락 ({{ $value }}/3)"
+      description: "{{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망."
 
-      - alert: VpubLogStale
-        expr: time() - vpub_component_log_mtime_seconds > 300
-        for: 2m
-        labels:
-          alert_level: high
-          chain: hyperliquid
-        annotations:
-          summary: "vpub {{ $labels.component }} 로그 5분+ 멈춤"
-          description: "{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능."
+  - alert: VpubLogStale
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true'}) > 300
+    for: 2m
+    labels:
+      alertEvent: "vpub:log:stale"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub {{ $labels.component }} 로그 5분+ 멈춤"
+      description: "{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능."
 
-      - alert: VpubLogStaleLong
-        expr: time() - vpub_component_log_mtime_seconds > 1800
-        for: 1m
-        labels:
-          alert_level: critical
-          chain: hyperliquid
-        annotations:
-          summary: "vpub {{ $labels.component }} 로그 30분+ 멈춤"
-          description: "{{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검."
+  - alert: VpubLogStaleLong
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true'}) > 1800
+    for: 1m
+    labels:
+      alertEvent: "vpub:log:stale_long"
+      alertLevel: "critical"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: "vpub {{ $labels.component }} 로그 30분+ 멈춤"
+      description: "{{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검."

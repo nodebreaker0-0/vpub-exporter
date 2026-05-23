@@ -51,6 +51,12 @@ type Config struct {
 	BinaryPath string
 	BinaryURL  string
 
+	// FR-012a — bridge-voter state.json path (read-only).
+	// Path pattern: <user-home>/v-publisher/bridge-voter-<chain>-state.json
+	// Sits in the SAME directory as publisher's config.json — exporter MUST NOT
+	// read config.json (Constitution IV). Only this exact path is opened.
+	BridgeStatePath string
+
 	// Tier 1 — Bridge RPC. names + per-name URL (URL 은 시크릿 취급).
 	BridgeRPCNames []string
 	BridgeRPCURLs  map[string]string
@@ -159,6 +165,7 @@ func Load(args []string, getenv func(string) string) (*Config, error) {
 		cfg.BinaryPath = DefaultBinaryPath
 	}
 	cfg.BinaryURL = getenv("VPUB_BINARY_URL")
+	cfg.BridgeStatePath = getenv("VPUB_BRIDGE_STATE_PATH")
 	cfg.SlackBotToken = getenv("VPUB_SLACK_BOT_TOKEN")
 	cfg.OutcomeChannel = getenv("VPUB_OUTCOME_CHANNEL")
 
@@ -226,6 +233,9 @@ func (c *Config) HasSlack() bool { return c.SlackBotToken != "" }
 
 // HasBinaryRemote — Tier 2 collector activation hint.
 func (c *Config) HasBinaryRemote() bool { return c.BinaryURL != "" }
+
+// HasBridgeState — FR-012a collector activation hint.
+func (c *Config) HasBridgeState() bool { return c.BridgeStatePath != "" }
 
 func envKey(name string) string {
 	r := strings.ToUpper(name)

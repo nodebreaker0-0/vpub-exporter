@@ -88,6 +88,10 @@ func run() error {
 		brc := vpubcoll.NewBridgeRPCCollector(reg, rpc.NewHTTPProbe(), cfg.BridgeRPCNames, cfg.BridgeRPCURLs)
 		go brc.Start(ctx, exMetrics, cfg.ScrapeInterval) // 30s
 	}
+	if cfg.HasBridgeState() {
+		bs := vpubcoll.NewBridgeStateCollector(reg, cfg.BridgeStatePath)
+		go bs.Start(ctx, exMetrics, cfg.ScrapeInterval) // 30s
+	}
 	// Log tailers share one OS impl (PollingTailer needs LatestFileFn — we
 	// give it logfs.New().LatestMtime, ignoring the returned mtime).
 	tailLatest := func(dir string) (string, error) {

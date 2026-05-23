@@ -26,17 +26,17 @@ hl-validator-publisher (visor + bridge-voter + reference-oracle-publisher + outc
 
 > Gate: pass before Phase 0 research. Re-check after Phase 1 design.
 
-| 원칙 | 통과 | 비고 |
+| 원칙 | 통과 | 비고 (운영 검증 2026-05-23 포함) |
 |---|---|---|
-| I. Outside-the-Box Monitoring | ✅ | publisher 와 별도 프로세스. 의존성 없음 |
-| II. No Side Effects on Publisher | ✅ | read-only 확정 (FR-016). 자동 액션 0개 |
-| III. Monitoring 레포 Convention | ✅ | metric prefix `vpub_`, alert_level 5종 한정, promtool check gate (FR-018, 019) |
-| IV. Secrets Never in Code/Metrics | ✅ | env-only (FR-015). config.json 직접 파싱 X |
-| V. Non-Blocking Scrape | ✅ | 외부 호출 별도 goroutine + cache (FR-017) |
-| VI. Time-Sensitive Truth from Logs | ✅ | 패턴은 env override 가능 (FR-020) |
-| VII. Tier Gating | ✅ | tasks.md 에서 Tier 0/1/2 phase 분리 |
+| I. Outside-the-Box Monitoring | ✅ | publisher 와 별도 프로세스. publisher dies 시 `VpubServiceDownTestnet` 정확히 발화 (실측 검증) |
+| II. No Side Effects on Publisher | ✅ | read-only 확정 (FR-016). QS-5 검증 — publisher 파일 변경 0 |
+| III. Monitoring 레포 Convention | ✅ | metric prefix `vpub_`, alertLevel 5종, promtool + yamllint check gate (FR-018, 019). testnet/mainnet 분기 22 rules |
+| IV. Secrets Never in Code/Metrics | ✅ | env-only (FR-015). `/metrics` + journal 시크릿 grep 0 hit |
+| V. Non-Blocking Scrape | ✅ | 외부 호출 별도 goroutine + cache (FR-017). p95 ~4ms (200ms 임계의 2%) |
+| VI. Time-Sensitive Truth from Logs | ✅ | 패턴은 env override 가능 (FR-020). R-003 testnet 9.7h 실로그로 default 확정 |
+| VII. Tier Gating | ✅ | Tier 0 MVP testnet 가동 → 안정 확인 후 Tier 1 + Tier 2 통합. opt 3 stub 모드 |
 
-위반 항목 없음. Complexity Tracking 비움.
+위반 항목 없음. Complexity Tracking 비움. 운영 발견 → constitution Operational Constraints 에 PrivateTmp=no / dbus Service interface 보강 (2026-05-23).
 
 ## Project Structure
 

@@ -9,20 +9,26 @@
 ```
 vpub-exporter/
 ├── CLAUDE.md                              # 본 파일 — agent 진입점 (지도)
+├── README.md                              # 운영자용 — quickstart + 모든 메트릭/알람 + 트러블슈팅
 ├── .specify/
 │   ├── feature.json                       # 현재 활성 feature directory
 │   └── memory/constitution.md             # 프로젝트 헌법 (7원칙)
+├── monitoring/                            # monitoring 레포 staging (PR 시 그대로 복사)
+│   ├── agents/Test_hyperliquid_VPUB_apn1.toml
+│   └── rules/hyperliquid_vpub_rule.yaml   # 22 rules (Tier 0+1, testnet/mainnet 분기)
+├── systemd/vpub-exporter.service          # PrivateTmp=no, ProtectSystem=full
+├── env/vpub-exporter.env.example
 └── specs/001-vpub-exporter/
-    ├── spec.md                            # WHAT / WHY (user stories, FR, SC)
+    ├── spec.md                            # WHAT / WHY (user stories, FR-001~012a, SC-001~008)
     ├── plan.md                            # HOW (tech context, structure)
-    ├── research.md                        # Phase 0 (가동 첫날 확정 항목 R-001~012)
+    ├── research.md                        # Phase 0 (R-001~012 / R-001~004 ✅ 확정)
     ├── data-model.md                      # Phase 1 (도메인 엔티티)
     ├── contracts/
-    │   ├── metrics.md                     # 메트릭 인터페이스 명세
-    │   └── alerts.md                      # 알람 룰 명세
-    ├── quickstart.md                      # Phase 1 (검증 시나리오 QS-1~6)
-    ├── checklists/requirements.md         # spec quality
-    └── tasks.md                           # Phase 2 (구현 태스크 — 후속 단계에서 생성)
+    │   ├── metrics.md                     # 메트릭 인터페이스 명세 + 코드 cross-ref
+    │   └── alerts.md                      # 알람 룰 명세 (22 rules)
+    ├── quickstart.md                      # 검증 시나리오 QS-1~6 (LSN-D13958 운영 결과 반영)
+    ├── checklists/requirements.md         # spec quality + 운영 검증 status
+    └── tasks.md                           # Phase 1-5 + Polish task 매트릭스
 ```
 
 <!-- SPECKIT START -->
@@ -44,9 +50,20 @@ vpub-exporter/
 ## 사용자 컨펌 (2026-05-23)
 
 1. ✅ Port 8002
-2. ✅ Publisher 머신 IP 는 사용자가 agent TOML 에 직접 채움 (`<IP>` placeholder)
+2. ✅ Publisher 머신: LSN-D13958 / 64.31.51.41 / x86_64 / Tokyo / testnet user=admin
 3. ✅ Outcome pending count 는 fallback (단순 24h 메시지 수)
 4. ✅ 범위는 Tier 0 + 1 + 2 전부 한 코드베이스
+5. ✅ Testnet 은 PagerDuty 호출 X — critical 룰 6건 mainnet 한정 + testnet 복제 (high)
+6. ✅ GitHub: `nodebreaker0-0/vpub-exporter` (private). monitoring 레포는 별도 B-Harvest 내부 레포.
+
+## 운영 검증 결과 (2026-05-23)
+
+Tier 0 MVP testnet 가동 ✅:
+- `VpubServiceDownTestnet` 정확히 발화 + resolve (90s 임계 SC-001 합격)
+- `VpubChildMissing` — publisher robust spawn 으로 발화 X (안전망 룰로 재정의 — spec.md SC-002 보정)
+- `VpubLogStale` — 7분 (5m 임계 + 2m for) 이상 stall 시 정상 발화
+- 모든 메트릭 정상 노출 + 시크릿 누출 0 + `/metrics` p95 < 5ms
+- `vpub_oracle_vote_total{ok}` = 12122 (testnet 가동 ~1시간)
 
 ## 절대 금지 (Constitution II / IV 직결)
 

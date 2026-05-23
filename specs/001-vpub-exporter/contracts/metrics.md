@@ -223,9 +223,13 @@
 | `vpub_bridge_rpc_up` | 005 | VpubBridgeRpcMajorityDown, VpubBridgeRpcSingleDown |
 | `vpub_bridge_rpc_latency_seconds` | 005 | (대시보드용) |
 | `vpub_bridge_rpc_disagreement_total` | 006 | VpubBridgeRpcDisagreement |
+| `vpub_bridge_rpc_check_total{status="auth_error"}` | 005 보강 | VpubBridgeRpcAuthError |
+| `vpub_bridge_state_last_scanned_block` | 012a | VpubBridgeStateStuck |
+| `vpub_bridge_state_mtime_unix` | 012a | (대시보드용) |
 | `vpub_bridge_vote_total` | 006 | VpubBridgeAllFail |
-| `vpub_bridge_last_vote_success_unix` | 007 | VpubBridgeStaleVote, VpubBridgeStaleVoteLong |
+| `vpub_bridge_last_vote_success_unix` | 007 | VpubBridgeStaleVote (mainnet), VpubBridgeStaleVoteLong (mainnet/testnet 분기) |
 | `vpub_oracle_vote_total` | 008 | (VpubOracleAllFail 후속 검토) |
+| `vpub_oracle_last_vote_success_unix` | 007 | VpubOracleStaleVote, VpubOracleStaleVoteLong (mainnet/testnet 분기) |
 | `vpub_oracle_last_vote_success_unix` | 007 | VpubOracleStaleVote |
 | `vpub_outcome_log_warn_total` | 009 | (대시보드용) |
 | `vpub_outcome_log_crit_total` | 009 | (Slack 1차 — 추가 룰 미적용) |

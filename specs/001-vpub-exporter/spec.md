@@ -18,7 +18,7 @@
 **Acceptance Scenarios**:
 
 1. **Given** publisher 가 정상 가동 중, **When** `systemctl stop validator-publisher` 실행, **Then** 1분 이내 critical 알람이 발생한다.
-2. **Given** publisher visor 는 살아있지만 child 1개가 hang/죽음, **When** child count 가 3 미만으로 30초 이상 지속, **Then** critical 알람이 발생한다.
+2. **Given** publisher visor 는 살아있지만 child 1개가 hang/죽음 + visor 의 재spawn 도 실패, **When** child count 가 3 미만으로 30초 이상 지속, **Then** critical 알람이 발생한다. **참고 (2026-05-23 LSN-D13958 관찰)**: visor 는 child 가 죽으면 1-3 초 안에 즉시 재spawn. 따라서 이 시나리오는 publisher robustness 가 실패한 매우 드문 비정상 케이스 안전망. 정상 운영 중 발화 0건 = 합격.
 3. **Given** publisher 가 살아있지만 특정 컴포넌트 로그가 5분 이상 갱신되지 않음, **When** 임계 초과 2분 지속, **Then** high 알람이 발생한다 (hang 의심).
 4. **Given** 위 모든 상태, **When** publisher 정상화, **Then** alertmanager 가 resolve 알람을 자동 송신한다.
 
@@ -35,11 +35,13 @@
 **Acceptance Scenarios**:
 
 1. **Given** bridge-voter 의 Arbitrum RPC 7개 중 4개 이상 응답, **When** 살아있는 RPC 가 4개 미만으로 5분 지속, **Then** high 알람.
-2. **Given** bridge voter 가 정상 vote 중, **When** 마지막 성공 vote 이후 1시간 경과, **Then** high 알람. 6시간 경과 시 critical 로 escalate.
-3. **Given** RPC 응답이 서로 disagreement (mismatch), **When** 15분 내 5건 초과, **Then** high 알람 (잘못된 vote 위험).
-4. **Given** reference oracle publisher 동작 중, **When** 마지막 성공 oracle vote 이후 2시간 경과, **Then** high 알람.
+2. **Given** bridge voter 가 정상 vote 중 (mainnet — testnet 은 입금 트래픽 0건이라 적용 X), **When** 마지막 성공 vote 이후 1시간 경과, **Then** high 알람. 6시간 경과 시 critical 로 escalate.
+3. **Given** RPC 응답이 서로 disagreement (mismatch), **When** 15분 내 5건 초과, **Then** high 알람 (잘못된 vote 위험). **참고**: testnet 실로그엔 "disagreement" 라인 없음 — 임시 패턴 (`RPC failed` WARN) 으로 대용. 메인넷 가동 후 진짜 라인 관찰 시 재정 (R-013 후속).
+4. **Given** reference oracle publisher 동작 중, **When** 마지막 성공 oracle vote 이후 5분 경과 (R-004: 정상 평균 4.3초), **Then** high 알람. 30분 경과 시 critical (mainnet) / high (testnet) 로 escalate.
 5. **Given** outcome-voter 가 정상, **When** outcome_actions 채널 미검토 추정 메시지 > 5 건이 30분 지속, **Then** medium 알람 (사람 검토 적체).
-6. **Given** Slack API 가 정상 동작, **When** `auth.test` 가 5분간 ok=false, **Then** critical 알람 ("publisher slack 알람이 모두 누락 중일 수 있음").
+6. **Given** Slack API 가 정상 동작, **When** `auth.test` 가 5분간 ok=false, **Then** critical 알람 (mainnet) / high (testnet) — "publisher slack 알람이 모두 누락 중일 수 있음".
+7. **Given** bridge voter 의 `~/v-publisher/bridge-voter-<chain>-state.json` 의 `last_scanned_block` 이 진행 중, **When** 5분 동안 같은 값 유지, **Then** high 알람 (`VpubBridgeStateStuck` — Arbitrum 스캔 정지, 로그 mtime 보다 강한 시그널).
+8. **Given** Arbitrum RPC 가 정상, **When** 10분 내 HTTP 401 응답 5번 초과 (`Must be authenticated!`), **Then** high 알람 (`VpubBridgeRpcAuthError` — RPC 키 만료/오류 — testnet 5/22 alchemy 에서 실관찰).
 
 ---
 
@@ -116,7 +118,7 @@
 ### Measurable Outcomes
 
 - **SC-001**: publisher 의 `systemctl stop` 후 critical 알람이 도착하기까지 평균 **<90초**, P95 **<120초**.
-- **SC-002**: child 1개가 죽었을 때 critical 알람이 도착하기까지 평균 **<60초**, P95 **<90초**.
+- **SC-002 (재정의 2026-05-23)**: publisher robustness 로 child auto-respawn 이 정상 동작하는 한 `VpubChildMissing` 알람은 발화 **0건** = pass. visor 자체 hang/실패 시에만 발화하는 안전망 룰. (원본 "<60초 detect" 기준은 publisher 동작과 양립 불가 — `VpubServiceDown` 이 SC-002 의 실질 대체 시그널.)
 - **SC-003**: vpub-exporter 의 `/metrics` 응답 시간 P95 **<200ms** (외부 호출 캐싱 효과 검증).
 - **SC-004**: vpub-exporter 자체의 RSS 평균 **<100MB**, CPU 평균 **<5%** (1 core 기준).
 - **SC-005**: 메인넷 가동 후 첫 1주일 동안 **slashable event 0건** (자동 vote/restart 0회 확인 — 본 도구의 read-only 특성 보존).
@@ -133,6 +135,12 @@
 - 모니터링 레포(`validator/monitoring/`)는 PR merge → parser → ansible 로 Prometheus 서버에 룰/스크레이프 자동 배포 가능 상태.
 - alertmanager 의 5종 alert_level 라우팅 (critical→PagerDuty+ddoa-critical / high→ddoa-high / medium/low→ddoa-low / disk→ddoa-disk) 은 그대로 사용.
 - Slack bot token 은 publisher config 와 동일 토큰 재사용 가능 (env 로 별도 주입, config.json 직접 파싱 X).
-- 메인넷 quorum 은 RPC 7개 중 4개 (가설). 실제 값은 가동 후 확정 (research.md).
-- 메인넷 binary URL 은 HF announce 시점에 환경변수로 주입 (가동 직전 확정).
+- 메인넷 quorum 은 RPC 7개 중 4개 (가설). 실제 값은 가동 후 확정 (research.md R-005).
+- 메인넷 binary URL 은 HF announce 시점에 환경변수로 주입 (R-006).
 - monitoring 레포 외에 별도 ansible role 은 본 PR 범위 밖. 일단 빌드 산출물(바이너리 + systemd unit + env 템플릿) 만 제공, 배포는 후속 PR 또는 수동.
+- **운영 발견 (2026-05-23 LSN-D13958 testnet 가동)**:
+  - systemd dbus `MainPID`/`NRestarts` 는 `org.freedesktop.systemd1.Service` interface 에 있음 (Unit 아님). `GetUnitTypePropertiesContext(unit, "Service")` 분리 호출 필수.
+  - systemd unit 의 `PrivateTmp=yes` 는 publisher 의 `/tmp/validator-publisher/` 격리. 반드시 `PrivateTmp=no` 사용 (publisher 의 `v-publisher.service.full` 도 동일).
+  - critical 알람은 mainnet 한정 + testnet 은 `<Name>Testnet` (alertLevel=high) 로 분기 — PagerDuty noise 차단.
+  - `VpubLogStale`/`Long` 의 `component` 라벨에서 `visor` 제외 — spawn manager 라 자체 로그 빈도 매우 낮아 false-positive.
+  - `VpubBridgeStaleVote` mainnet 한정 — testnet 입금 트래픽 0건이라 영구 발화.

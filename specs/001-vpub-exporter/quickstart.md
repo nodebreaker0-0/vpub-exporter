@@ -32,31 +32,55 @@ sudo systemctl start validator-publisher.service
 
 **합격**: 5회 반복 평균 시간이 90초 이하.
 
-### QS-1.2 — Child 1개 죽임 → critical (SC-002)
+### QS-1.2 — Child 1개 죽임 → child_count 회복 관찰 (SC-002 재정의)
+
+> **2026-05-23 LSN-D13958 운영 보정**: publisher (visor) 가 child 가 죽으면 **1-3 초 안에 즉시 재spawn** 한다 (검증됨 — PID 2567261 kill → 2567734 로 재시작). 따라서 우리 `vpub_child_count < 3` 의 `for: 30s` 임계로는 detect 못 함. 이건 룰 버그가 아니라 **publisher 의 robustness** 때문. `VpubChildMissing` 은 "visor 가 살아있지만 재spawn 도 못하는 매우 드문 비정상 상태" 를 잡는 **안전망 룰** 로 재정의한다.
 
 **절차**:
 ```bash
 # visor PID 확인
 VISOR_PID=$(systemctl show -p MainPID --value validator-publisher)
-# child 한 개 (예: bridge-voter) 강제 종료
-CHILD_PID=$(pgrep -P $VISOR_PID | head -1)
+
+# child 한 개 (bridge-voter) 강제 종료
+CHILD_PID=$(pgrep -P $VISOR_PID -f bridge-voter)
+echo "kill $CHILD_PID at $(date -u)"
 sudo kill -9 $CHILD_PID
-date -u
+
+# visor 가 즉시 재spawn 하는지 5초 후 확인 (publisher 정상 = 재spawn O)
+sleep 5
+ps --ppid $VISOR_PID -o pid,cmd
+# 기대: bridge-voter 가 새 PID 로 다시 떠 있음 — 알람 X 가 정답
 ```
 
 **기대**:
-- `vpub_child_count` 가 2 로 떨어짐 (visor 가 즉시 재spawn 하지 않는다는 가정 — 그렇다면 임계 30s 조정 필요)
-- `VpubChildMissing` 알람 발화
+- 5초 이내 새 child PID 로 재spawn → `vpub_child_count` 가 2 로 떨어지는 윈도우 < 30초 → **`VpubChildMissing` 알람 발화 X** (정상)
+- 만약 알람이 발화한다면 → visor 자체에 이상 (재spawn 실패) → 실제로 알람 의미 있음
 
-**합격**: 평균 < 60초, P95 < 90초.
+**합격 (재정의)**:
+- 정상 운영 중 `VpubChildMissing` 발화 0건 = pass (안전망 룰의 정상 상태)
+- `VpubServiceDown` (QS-1.1) 이 SC-002 의 대체 시그널 역할 — visor 자체가 죽거나 systemctl 이 active 상태 못 유지하면 그쪽이 먼저 발화
+
+**원본 SC-002 검증 불가 이유**: spec.md 초안 작성 시 visor 의 spawn 동작을 모른 채로 "5초 안에 child 사망 감지" 시나리오를 가정. 실제 publisher 는 더 robust 함 — Tier 0 의 child_count 메트릭은 안전망 가치로 유지하되 합격 기준은 "알람 안 뜨면 정상" 으로 변경.
 
 ### QS-1.3 — 로그 stall 시뮬레이션 (US1-3)
 
-**절차**: publisher 가 작동 중인 상태에서 컴포넌트 로그 파일을 임의로 `chmod 000` (쓰기 막음) → 5분 대기 → 복원
+**절차**: publisher 가 작동 중인 상태에서 컴포넌트 로그 디렉토리를 임의로 `chmod 000` (쓰기 막음) → **8분 이상** 대기 → 복원
 
-**기대**: `VpubLogStale` (high) 알람 발화 후, 30분 유지 시 `VpubLogStaleLong` (critical) 으로 escalate
+```bash
+sudo chmod 000 /tmp/validator-publisher/bridge-voter
+echo "block at $(date -u)"
+sleep 480   # 5분 임계 + 2분 for + 1분 마진
+# → #ddoa-high 채널에 VpubLogStale (alertEvent vpub:log:stale) 발화 기대
+sudo chmod 755 /tmp/validator-publisher/bridge-voter
+echo "restored at $(date -u)"
+# 복원 후 alertmanager resolve 메시지 도착 기대
+```
 
-**합격**: 5분 임계 + 2분 `for` 후 알람 도착.
+**기대**: `VpubLogStale` (high) 알람 발화 후, 30분 유지 시 `VpubLogStaleLongTestnet` (high, testnet 분기됨) / `VpubLogStaleLong` (critical, mainnet) 으로 escalate
+
+**합격**: 5분 임계 + 2분 `for` 합 7분 이상 후 알람 도착. 8분 sleep 권장.
+
+**주의**: 사이드 발견 — testnet 가동 1시간 후엔 `VpubBridgeStaleVote` (1h 임계) 가 자연 발화. **이 룰은 mainnet only 로 정정됨** (testnet 입금 트래픽 0 으로 인한 false-positive 차단).
 
 ---
 

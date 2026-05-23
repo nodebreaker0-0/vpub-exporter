@@ -26,11 +26,11 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 **Purpose**: Go 모듈, 빌드, CI 스켈레톤. 의존성 없음 — 가장 먼저.
 
-- [ ] **T001** Go 모듈 초기화 (`go.mod`). module path 는 research.md R-008 확정값 사용 (가설: `github.com/bharvest/vpub-exporter`). `go 1.21` 명시.
-- [ ] **T002** [P] `.gitignore` — `*.env`, `bin/`, `vendor/`, `coverage.out`, `*.tmp`
-- [ ] **T003** [P] `Makefile` — target: `build` (linux/amd64), `test`, `vet`, `lint`, `promtool-check`, `clean`
-- [ ] **T004** [P] `README.md` 스켈레톤 (운영자용. Phase N 에서 채움)
-- [ ] **T005** [P] `.github/workflows/ci.yml` — go build + go test + promtool check rules. 푸시 / PR 트리거.
+- [x] **T001** Go 모듈 초기화 (`go.mod`). module path 는 research.md R-008 확정값 사용 (가설: `github.com/bharvest/vpub-exporter`). `go 1.21` 명시.
+- [x] **T002** [P] `.gitignore` — `*.env`, `bin/`, `vendor/`, `coverage.out`, `*.tmp`
+- [x] **T003** [P] `Makefile` — target: `build` (linux/amd64), `test`, `vet`, `lint`, `promtool-check`, `clean`
+- [x] **T004** [P] `README.md` 스켈레톤 (운영자용. Phase N 에서 채움)
+- [x] **T005** [P] `.github/workflows/ci.yml` — go build + go test + promtool check rules. 푸시 / PR 트리거.
 
 **Checkpoint 1**: `make build` 가 빈 main 으로라도 동작 + CI 가 push 시 실행.
 
@@ -44,33 +44,33 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ### Config / Entry
 
-- [ ] **T010** `internal/config/config.go` — env / flag 파싱 + 검증. plan.md §Project Structure 의 env 목록 전체 (`VPUB_LOG_DIR`, `VPUB_BINARY_PATH`, `VPUB_BINARY_URL`, `VPUB_BRIDGE_RPC_NAMES`, `VPUB_RPC_<NAME>_URL`, `VPUB_SLACK_BOT_TOKEN`, `VPUB_OUTCOME_CHANNEL`, `VPUB_LOG_*_PATTERNS`, `VPUB_VOTE_*_PATTERNS`, `VPUB_DISAGREEMENT_PATTERNS`, `--listen-addr`, `--scrape-interval`, `--service-name`).
-- [ ] **T011** [P] `internal/config/config_test.go` — env override / default / validation 검증.
-- [ ] **T012** `cmd/vpub-exporter/main.go` — entry. flag/env 로드 → registry → collector 등록 → `http.Server` 띄우고 `/metrics` 핸들러. SIGTERM/SIGINT graceful shutdown (외부 호출 goroutine 도 context 로 취소).
+- [x] **T010** `internal/config/config.go` — env / flag 파싱 + 검증. plan.md §Project Structure 의 env 목록 전체 (`VPUB_LOG_DIR`, `VPUB_BINARY_PATH`, `VPUB_BINARY_URL`, `VPUB_BRIDGE_RPC_NAMES`, `VPUB_RPC_<NAME>_URL`, `VPUB_SLACK_BOT_TOKEN`, `VPUB_OUTCOME_CHANNEL`, `VPUB_LOG_*_PATTERNS`, `VPUB_VOTE_*_PATTERNS`, `VPUB_DISAGREEMENT_PATTERNS`, `--listen-addr`, `--scrape-interval`, `--service-name`).
+- [x] **T011** [P] `internal/config/config_test.go` — env override / default / validation 검증.
+- [x] **T012** `cmd/vpub-exporter/main.go` — entry. flag/env 로드 → registry → collector 등록 → `http.Server` 띄우고 `/metrics` 핸들러. SIGTERM/SIGINT graceful shutdown (외부 호출 goroutine 도 context 로 취소).
 
 ### Exporter Self / Registry
 
-- [ ] **T013** `internal/collectors/base.go` — collector 공통: 캐시 mutex 패턴, `vpub_exporter_collection_duration_seconds`, `vpub_exporter_collection_errors_total` 등록 helper.
-- [ ] **T014** [P] `internal/collectors/base_test.go` — 캐시 / 에러 카운트 동작.
+- [x] **T013** `internal/collectors/base.go` — collector 공통: 캐시 mutex 패턴, `vpub_exporter_collection_duration_seconds`, `vpub_exporter_collection_errors_total` 등록 helper.
+- [x] **T014** [P] `internal/collectors/base_test.go` — 캐시 / 에러 카운트 동작.
 
 ### 외부 의존성 인터페이스 (stub — Phase 3+ 에서 채움)
 
-- [ ] **T015** [P] `internal/systemd/systemd.go` — `interface ServiceProbe { IsActive() (bool, error); MainPID() (int, error); NRestarts() (int, error) }`. 실제 구현은 T030.
-- [ ] **T016** [P] `internal/procs/procs.go` — `interface ChildLister { CountChildren(parentPID int) (int, error) }`. 실제 구현은 T031.
-- [ ] **T017** [P] `internal/logfs/logfs.go` — `interface LogDirStat { LatestMtime(componentDir string) (time.Time, string, error) }`. 실제 구현은 T032.
-- [ ] **T018** [P] `internal/logtail/logtail.go` — `interface Tailer { Subscribe(file string, patterns []*regexp.Regexp) <-chan Match }`. 실제 구현은 T040.
-- [ ] **T019** [P] `internal/rpc/rpc.go` — `interface RPCProbe { Probe(ctx, url string) (latency time.Duration, err error) }` (eth_blockNumber). 실제 구현은 T041.
-- [ ] **T020** [P] `internal/slackapi/slackapi.go` — `interface Slack { AuthTest(ctx, token string) (bool, error); History24h(ctx, token, channelID string) (int, error) }`. 실제 구현은 T042.
-- [ ] **T021** [P] `internal/binary/binary.go` — `interface Probe { LocalMtime(path string) (time.Time, error); RemoteLastModified(ctx, url string) (time.Time, error) }`. 실제 구현은 T050.
+- [x] **T015** [P] `internal/systemd/systemd.go` — `interface ServiceProbe { IsActive() (bool, error); MainPID() (int, error); NRestarts() (int, error) }`. 실제 구현은 T030.
+- [x] **T016** [P] `internal/procs/procs.go` — `interface ChildLister { CountChildren(parentPID int) (int, error) }`. 실제 구현은 T031.
+- [x] **T017** [P] `internal/logfs/logfs.go` — `interface LogDirStat { LatestMtime(componentDir string) (time.Time, string, error) }`. 실제 구현은 T032.
+- [x] **T018** [P] `internal/logtail/logtail.go` — `interface Tailer { Subscribe(file string, patterns []*regexp.Regexp) <-chan Match }`. 실제 구현은 T040.
+- [x] **T019** [P] `internal/rpc/rpc.go` — `interface RPCProbe { Probe(ctx, url string) (latency time.Duration, err error) }` (eth_blockNumber). 실제 구현은 T041.
+- [x] **T020** [P] `internal/slackapi/slackapi.go` — `interface Slack { AuthTest(ctx, token string) (bool, error); History24h(ctx, token, channelID string) (int, error) }`. 실제 구현은 T042.
+- [x] **T021** [P] `internal/binary/binary.go` — `interface Probe { LocalMtime(path string) (time.Time, error); RemoteLastModified(ctx, url string) (time.Time, error) }`. 실제 구현은 T050.
 
 ### Systemd unit / env
 
-- [ ] **T022** [P] `systemd/vpub-exporter.service` — `EnvironmentFile=/etc/vpub-exporter.env`, `User=admin`, `ProtectSystem=full`, `ReadOnlyPaths=/home/admin/v-publisher`, `RestrictSUIDSGID=yes`, `NoNewPrivileges=yes`, `LimitNOFILE=65536`. constitution Operational Constraints + spec.md QS-5 직결.
-- [ ] **T023** [P] `env/vpub-exporter.env.example` — 모든 env 변수의 placeholder + 주석. 시크릿 자리에 `# CHANGE_ME` 표시. config.json 참조 금지 주석.
+- [x] **T022** [P] `systemd/vpub-exporter.service` — `EnvironmentFile=/etc/vpub-exporter.env`, `User=admin`, `ProtectSystem=full`, `ReadOnlyPaths=/home/admin/v-publisher`, `RestrictSUIDSGID=yes`, `NoNewPrivileges=yes`, `LimitNOFILE=65536`. constitution Operational Constraints + spec.md QS-5 직결.
+- [x] **T023** [P] `env/vpub-exporter.env.example` — 모든 env 변수의 placeholder + 주석. 시크릿 자리에 `# CHANGE_ME` 표시. config.json 참조 금지 주석.
 
 ### `/metrics` 동작 검증
 
-- [ ] **T024** `tests/integration/metrics_endpoint_test.go` — httptest 로 `/metrics` 호출, prefix `vpub_` 만 등장, exporter self metrics 응답 확인. 모든 collector 가 빈 cache 일 때도 panic 없음.
+- [x] **T024** `tests/integration/metrics_endpoint_test.go` — httptest 로 `/metrics` 호출, prefix `vpub_` 만 등장, exporter self metrics 응답 확인. 모든 collector 가 빈 cache 일 때도 panic 없음.
 
 **Checkpoint 2**: `make build && ./bin/vpub-exporter --listen-addr :8002` 로 빈 exporter 가 떠서 `vpub_exporter_*` 만 노출. SIGTERM 정상 종료.
 
@@ -84,27 +84,27 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ### 외부 의존성 실제 구현
 
-- [ ] **T030** [P] [US1] `internal/systemd/systemd_dbus.go` — `go-systemd/v22/dbus` 로 `GetUnitProperties("<service>.service")` 호출, `ActiveState`/`MainPID`/`NRestarts` 추출. research.md R-010 결정.
-- [ ] **T031** [P] [US1] `internal/procs/procs_proc.go` — `/proc/<pid>/task` 디렉토리 엔트리 수 카운트. 또는 fallback 으로 `pgrep -P`.
-- [ ] **T032** [P] [US1] `internal/logfs/logfs_os.go` — `ReadDir` + filename glob (`YYYYMMDD` 형식 가정 — R-002 확정 후 정정) + 최신 mtime 추출.
+- [x] **T030** [P] [US1] `internal/systemd/systemd_dbus.go` — `go-systemd/v22/dbus` 로 `GetUnitProperties("<service>.service")` 호출, `ActiveState`/`MainPID`/`NRestarts` 추출. research.md R-010 결정.
+- [x] **T031** [P] [US1] `internal/procs/procs_proc.go` — `/proc/<pid>/task` 디렉토리 엔트리 수 카운트. 또는 fallback 으로 `pgrep -P`.
+- [x] **T032** [P] [US1] `internal/logfs/logfs_os.go` — `ReadDir` + filename glob (`YYYYMMDD` 형식 가정 — R-002 확정 후 정정) + 최신 mtime 추출.
 
 ### Collectors
 
-- [ ] **T033** [US1] `internal/collectors/service.go` — `vpub_service_up`, `vpub_child_count`, `vpub_service_restart_total` 정의/등록. 5s + 10s + 30s 주기로 systemd/procs 호출 후 캐시 갱신. FR-001/002/004 매핑. // FR 주석 필수.
-- [ ] **T034** [US1] `internal/collectors/logmtime.go` — `vpub_component_log_mtime_seconds{component=...}`. 4개 컴포넌트 디렉토리 각각 stat. 30s 주기. FR-003.
+- [x] **T033** [US1] `internal/collectors/service.go` — `vpub_service_up`, `vpub_child_count`, `vpub_service_restart_total` 정의/등록. 5s + 10s + 30s 주기로 systemd/procs 호출 후 캐시 갱신. FR-001/002/004 매핑. // FR 주석 필수.
+- [x] **T034** [US1] `internal/collectors/logmtime.go` — `vpub_component_log_mtime_seconds{component=...}`. 4개 컴포넌트 디렉토리 각각 stat. 30s 주기. FR-003.
 
 ### 테스트
 
-- [ ] **T035** [P] [US1] `internal/systemd/systemd_dbus_test.go` — mock dbus (또는 fake `Conn`) 로 다양한 상태 (active/inactive/failed) 처리.
-- [ ] **T036** [P] [US1] `internal/procs/procs_proc_test.go` — testdata 에 `/proc` 시뮬레이션 디렉토리, 3/0/4 children 케이스.
-- [ ] **T037** [P] [US1] `internal/logfs/logfs_os_test.go` — fixture 로그 디렉토리 (회전된 여러 파일 + 동일 시간대 중복) 에서 최신 파일 정확 식별.
-- [ ] **T038** [P] [US1] `internal/collectors/service_test.go` — mock interface 주입, 메트릭 값 검증.
-- [ ] **T039** [P] [US1] `internal/collectors/logmtime_test.go` — fake LogDirStat 으로 4 컴포넌트 동시 검증.
+- [x] **T035** [P] [US1] `internal/systemd/systemd_dbus_test.go` — mock dbus (또는 fake `Conn`) 로 다양한 상태 (active/inactive/failed) 처리.
+- [x] **T036** [P] [US1] `internal/procs/procs_proc_test.go` — testdata 에 `/proc` 시뮬레이션 디렉토리, 3/0/4 children 케이스.
+- [x] **T037** [P] [US1] `internal/logfs/logfs_os_test.go` — fixture 로그 디렉토리 (회전된 여러 파일 + 동일 시간대 중복) 에서 최신 파일 정확 식별.
+- [x] **T038** [P] [US1] `internal/collectors/service_test.go` — mock interface 주입, 메트릭 값 검증.
+- [x] **T039** [P] [US1] `internal/collectors/logmtime_test.go` — fake LogDirStat 으로 4 컴포넌트 동시 검증.
 
 ### Tier 0 alert rules
 
-- [ ] **T040X** [US1] `monitoring/rules/hyperliquid_vpub_rule_tier0.yaml` — contracts/alerts.md §1 의 4 룰 (VpubServiceDown, VpubChildMissing, VpubLogStale, VpubLogStaleLong). 본 파일은 vpub-exporter 폴더 안에 우선 작성 후 Phase N 에서 monitoring 레포로 복사.
-- [ ] **T041X** [US1] `Makefile` 의 `promtool-check` target 으로 위 yaml 통과 확인.
+- [x] **T040X** [US1] `monitoring/rules/hyperliquid_vpub_rule_tier0.yaml` — contracts/alerts.md §1 의 4 룰 (VpubServiceDown, VpubChildMissing, VpubLogStale, VpubLogStaleLong). 본 파일은 vpub-exporter 폴더 안에 우선 작성 후 Phase N 에서 monitoring 레포로 복사.
+- [x] **T041X** [US1] `Makefile` 의 `promtool-check` target 으로 위 yaml 통과 확인.
 
 **Checkpoint 3** (MVP): testnet 가동 후 quickstart QS-1.1, QS-1.2, QS-1.3 모두 합격. 이 시점에 monitoring 레포 PR (Tier 0 only) 가능.
 
@@ -118,31 +118,31 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ### 외부 의존성 실제 구현
 
-- [ ] **T040** [P] [US2] `internal/logtail/logtail_poll.go` — 파일 tail (open → seek end → 30s 마다 새 줄 읽기 + 매 30s rotation 체크). 패턴 매칭은 `regexp` 컴파일 후 cache. research.md R-011.
-- [ ] **T041** [P] [US2] `internal/rpc/rpc_http.go` — `net/http` 로 JSON-RPC `{"method":"eth_blockNumber"}` 호출. 5s timeout. latency 반환. R-012 (직접 구현).
-- [ ] **T042** [P] [US2] `internal/slackapi/slackapi_http.go` — `auth.test`, `conversations.history` 두 endpoint 만. Bearer token 헤더. JSON 응답 파싱 (`ok` 필드, messages 배열 길이). R-012.
+- [x] **T040** [P] [US2] `internal/logtail/logtail_poll.go` — 파일 tail (open → seek end → 30s 마다 새 줄 읽기 + 매 30s rotation 체크). 패턴 매칭은 `regexp` 컴파일 후 cache. research.md R-011.
+- [x] **T041** [P] [US2] `internal/rpc/rpc_http.go` — `net/http` 로 JSON-RPC `{"method":"eth_blockNumber"}` 호출. 5s timeout. latency 반환. R-012 (직접 구현).
+- [x] **T042** [P] [US2] `internal/slackapi/slackapi_http.go` — `auth.test`, `conversations.history` 두 endpoint 만. Bearer token 헤더. JSON 응답 파싱 (`ok` 필드, messages 배열 길이). R-012.
 
 ### Collectors
 
-- [ ] **T043** [US2] `internal/collectors/bridge_rpc.go` — `vpub_bridge_rpc_up{name}`, `vpub_bridge_rpc_latency_seconds{name}` (Histogram), `vpub_bridge_rpc_check_total{name,status}`. 30s 주기. config 에서 받은 RPC 이름 리스트 순회. FR-005.
-- [ ] **T044** [US2] `internal/collectors/vote_logs.go` — bridge + oracle 공용 모듈. logtail 구독 → 패턴 매칭으로 `vpub_bridge_vote_total{status}`, `vpub_oracle_vote_total{status}`, `vpub_bridge_last_vote_success_unix`, `vpub_oracle_last_vote_success_unix`, `vpub_bridge_rpc_disagreement_total`. FR-006~008.
-- [ ] **T045** [US2] `internal/collectors/outcome_logs.go` — outcome-voter 로그 tail → `vpub_outcome_log_warn_total`, `vpub_outcome_log_crit_total`. FR-009.
-- [ ] **T046** [US2] `internal/collectors/outcome_slack.go` — Slack `conversations.history` 5분 주기 → `vpub_outcome_slack_msg_24h`. rate limit (429) 시 직전 값 유지 + error counter 증가. FR-010.
-- [ ] **T047** [US2] `internal/collectors/slack_health.go` — Slack `auth.test` 60s 주기 → `vpub_slack_api_ok`. FR-011.
+- [x] **T043** [US2] `internal/collectors/bridge_rpc.go` — `vpub_bridge_rpc_up{name}`, `vpub_bridge_rpc_latency_seconds{name}` (Histogram), `vpub_bridge_rpc_check_total{name,status}`. 30s 주기. config 에서 받은 RPC 이름 리스트 순회. FR-005.
+- [x] **T044** [US2] `internal/collectors/vote_logs.go` — bridge + oracle 공용 모듈. logtail 구독 → 패턴 매칭으로 `vpub_bridge_vote_total{status}`, `vpub_oracle_vote_total{status}`, `vpub_bridge_last_vote_success_unix`, `vpub_oracle_last_vote_success_unix`, `vpub_bridge_rpc_disagreement_total`. FR-006~008.
+- [x] **T045** [US2] `internal/collectors/outcome_logs.go` — outcome-voter 로그 tail → `vpub_outcome_log_warn_total`, `vpub_outcome_log_crit_total`. FR-009.
+- [x] **T046** [US2] `internal/collectors/outcome_slack.go` — Slack `conversations.history` 5분 주기 → `vpub_outcome_slack_msg_24h`. rate limit (429) 시 직전 값 유지 + error counter 증가. FR-010.
+- [x] **T047** [US2] `internal/collectors/slack_health.go` — Slack `auth.test` 60s 주기 → `vpub_slack_api_ok`. FR-011.
 
 ### 테스트
 
-- [ ] **T048** [P] [US2] `internal/logtail/logtail_poll_test.go` — testdata 의 회전된 로그 파일 (어제/오늘) 에서 신/구 줄 정확히 emit, 회전 감지.
-- [ ] **T049** [P] [US2] `internal/rpc/rpc_http_test.go` — httptest 서버로 정상/timeout/500 케이스.
-- [ ] **T050** [P] [US2] `internal/slackapi/slackapi_http_test.go` — fixture JSON 응답으로 auth.test ok/fail, history count 계산.
-- [ ] **T051** [P] [US2] `internal/collectors/bridge_rpc_test.go` — mock RPCProbe 로 7개 중 3 down 케이스.
-- [ ] **T052** [P] [US2] `internal/collectors/vote_logs_test.go` — testdata 로그 fixture (bridge / oracle 정상 / 실패 / disagreement 혼합).
-- [ ] **T053** [P] [US2] `internal/collectors/outcome_logs_test.go`, `outcome_slack_test.go`, `slack_health_test.go` — 각 mock 으로 카운트 검증.
+- [x] **T048** [P] [US2] `internal/logtail/logtail_poll_test.go` — testdata 의 회전된 로그 파일 (어제/오늘) 에서 신/구 줄 정확히 emit, 회전 감지.
+- [x] **T049** [P] [US2] `internal/rpc/rpc_http_test.go` — httptest 서버로 정상/timeout/500 케이스.
+- [x] **T050** [P] [US2] `internal/slackapi/slackapi_http_test.go` — fixture JSON 응답으로 auth.test ok/fail, history count 계산.
+- [x] **T051** [P] [US2] `internal/collectors/bridge_rpc_test.go` — mock RPCProbe 로 7개 중 3 down 케이스.
+- [x] **T052** [P] [US2] `internal/collectors/vote_logs_test.go` — testdata 로그 fixture (bridge / oracle 정상 / 실패 / disagreement 혼합).
+- [x] **T053** [P] [US2] `internal/collectors/outcome_logs_test.go`, `outcome_slack_test.go`, `slack_health_test.go` — 각 mock 으로 카운트 검증.
 
 ### Tier 1 alert rules
 
-- [ ] **T054** [US2] `monitoring/rules/hyperliquid_vpub_rule_tier1.yaml` — contracts/alerts.md §2 의 9 룰 (VpubBridgeRpcMajorityDown, VpubBridgeRpcSingleDown, VpubBridgeRpcDisagreement, VpubBridgeStaleVote, VpubBridgeStaleVoteLong, VpubBridgeAllFail, VpubOracleStaleVote, VpubOutcomePendingLong, VpubSlackTokenInvalid). R-004/R-005 확정 후 임계 조정.
-- [ ] **T055** [US2] promtool check 통과.
+- [x] **T054** [US2] `monitoring/rules/hyperliquid_vpub_rule_tier1.yaml` — contracts/alerts.md §2 의 9 룰 (VpubBridgeRpcMajorityDown, VpubBridgeRpcSingleDown, VpubBridgeRpcDisagreement, VpubBridgeStaleVote, VpubBridgeStaleVoteLong, VpubBridgeAllFail, VpubOracleStaleVote, VpubOutcomePendingLong, VpubSlackTokenInvalid). R-004/R-005 확정 후 임계 조정.
+- [x] **T055** [US2] promtool check 통과.
 
 **Checkpoint 4**: quickstart QS-2.1~2.5 합격. Tier 1 룰 PR.
 
@@ -154,17 +154,17 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ### 외부 의존성 + Collector
 
-- [ ] **T060** [P] [US3] `internal/binary/binary_http.go` — `os.Stat(localPath).ModTime()` + `http.Head(url)` → `Last-Modified` 헤더 파싱. 10s timeout.
-- [ ] **T061** [US3] `internal/collectors/binary.go` — `vpub_binary_local_mtime_unix`, `vpub_binary_remote_mtime_unix`, `vpub_binary_remote_check_ok`. local=60s, remote=10m 주기. FR-012/013.
+- [x] **T060** [P] [US3] `internal/binary/binary_http.go` — `os.Stat(localPath).ModTime()` + `http.Head(url)` → `Last-Modified` 헤더 파싱. 10s timeout.
+- [x] **T061** [US3] `internal/collectors/binary.go` — `vpub_binary_local_mtime_unix`, `vpub_binary_remote_mtime_unix`, `vpub_binary_remote_check_ok`. local=60s, remote=10m 주기. FR-012/013.
 
 ### 테스트
 
-- [ ] **T062** [P] [US3] `internal/binary/binary_http_test.go` — httptest 서버에 `Last-Modified` 설정 / 404 / timeout 케이스.
-- [ ] **T063** [P] [US3] `internal/collectors/binary_test.go` — mock Probe.
+- [x] **T062** [P] [US3] `internal/binary/binary_http_test.go` — httptest 서버에 `Last-Modified` 설정 / 404 / timeout 케이스.
+- [x] **T063** [P] [US3] `internal/collectors/binary_test.go` — mock Probe.
 
 ### Tier 2 alert rules
 
-- [ ] **T064** [US3] `monitoring/rules/hyperliquid_vpub_rule_tier2.yaml` — VpubBinaryUpdateAvailable, VpubBinaryRemoteCheckFail.
+- [x] **T064** [US3] `monitoring/rules/hyperliquid_vpub_rule_tier2.yaml` — VpubBinaryUpdateAvailable, VpubBinaryRemoteCheckFail.
 
 **Checkpoint 5**: quickstart QS-3.1, QS-3.2 합격.
 
@@ -176,14 +176,14 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ### Monitoring 레포 통합 파일
 
-- [ ] **T070** [P] `monitoring/agents/Main_hyperliquid_VPUB_<region>.toml` — `vpub-exporter` job + `node-exporter` job 2개. `<IP>` placeholder. labels `chain=hyperliquid, network=mainnet`. (사용자가 IP / region 채움). 본 파일은 우리 폴더에 우선 작성 후 monitoring 레포 PR 시 복사.
-- [ ] **T071** `monitoring/rules/hyperliquid_vpub_rule.yaml` — Tier 0+1+2 합본 (T040X + T054 + T064 통합). 단일 group `hyperliquid_vpub`. promtool check 통과.
+- [x] **T070** [P] `monitoring/agents/Main_hyperliquid_VPUB_<region>.toml` — `vpub-exporter` job + `node-exporter` job 2개. `<IP>` placeholder. labels `chain=hyperliquid, network=mainnet`. (사용자가 IP / region 채움). 본 파일은 우리 폴더에 우선 작성 후 monitoring 레포 PR 시 복사.
+- [x] **T071** `monitoring/rules/hyperliquid_vpub_rule.yaml` — Tier 0+1+2 합본 (T040X + T054 + T064 통합). 단일 group `hyperliquid_vpub`. promtool check 통과.
 - [ ] **T072** [P] `monitoring/README.md` 안내 (위 파일들이 어디서 왔는지, 어떻게 업데이트하는지).
 
 ### README / 운영 문서
 
-- [ ] **T073** [P] `README.md` 완성 — 설치 / 빌드 / 환경변수 / systemd / 트러블슈팅 / 메트릭 목록 (contracts/metrics.md 링크).
-- [ ] **T074** [P] `env/vpub-exporter.env.example` 최종 (모든 R-001~007 확정값 반영).
+- [x] **T073** [P] `README.md` 완성 — 설치 / 빌드 / 환경변수 / systemd / 트러블슈팅 / 메트릭 목록 (contracts/metrics.md 링크).
+- [x] **T074** [P] `env/vpub-exporter.env.example` 최종 (모든 R-001~007 확정값 반영).
 
 ### 통합 테스트
 

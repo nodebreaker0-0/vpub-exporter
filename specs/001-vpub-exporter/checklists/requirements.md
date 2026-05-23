@@ -39,7 +39,33 @@
 - [x] VI. Time-Sensitive Truth from Logs — FR-020, research.md R-003
 - [x] VII. Tier Gating — User Story P1/P2/P3, tasks 는 후속 명령
 
-## Notes
+## 운영 검증 (2026-05-23 LSN-D13958 testnet 가동 후)
 
-- 가동 첫날 R-001~007 확정 후 본 체크리스트 재실행 권장.
-- Tier 1 임계 (VpubBridgeStaleVote 1h, VpubOracleStaleVote 2h) 는 1주일 데이터 후 false-positive 비율 보고 조정 (SC-007).
+### Tier 0 합격 매트릭스
+
+- [x] **SC-001** Publisher stop → critical 알람 < 90s (실측 ≤ 90s, resolve 도 정상)
+- [x] **SC-002 (재정의)** `VpubChildMissing` 안전망 룰 — publisher robust spawn 으로 정상 운영 중 발화 0건 = pass
+- [x] **SC-003** `/metrics` 응답 p95 < 200ms (실측 ~4ms)
+- [x] **SC-004** RSS < 100MB (실측 8.7MB), CPU < 5% (확인됨)
+- [x] **SC-005** Read-only 보존 (publisher 파일 변경 0)
+- [ ] **SC-006** 1개월 down 감지율 100% (운영 누적 필요)
+- [ ] **SC-007** false-positive < 10% (1주일 데이터 후 재평가)
+- [x] **SC-008** Tier 0 첫 PR → 배포 < 24h ✅
+
+### 운영 발견 (백포트 완료)
+
+- [x] R-001/002/003/004 ✅ testnet 9.7h 실로그 분석으로 확정 + env.example default 갱신
+- [x] systemd dbus `MainPID`/`NRestarts` Service interface 분리 호출
+- [x] systemd unit `PrivateTmp=no` (publisher `/tmp/...` read 위해)
+- [x] `VpubLogStale`/`Long` 에 `component!="visor"` 매처 (자체 로그 빈도 낮음)
+- [x] critical 6 룰 mainnet 한정 + testnet 복제 (`<Name>Testnet`, high) → PagerDuty noise 차단
+- [x] `VpubBridgeStaleVote` mainnet only (testnet 입금 0건 자연 false-positive 차단)
+- [x] yamllint indent + parser wrap 시뮬 promtool check 모두 통과
+
+### 후속 (mainnet 가동 시점)
+
+- [ ] R-005 메인넷 RPC quorum 정확값 확정 (vote 시도 시 합의 라인 관찰)
+- [ ] R-006 메인넷 binary URL (HF announce)
+- [ ] mainnet 인스턴스 추가 PR (별도 agent TOML, network=mainnet)
+- [ ] `VpubBridgeRpcDisagreement` 패턴 재정 (메인넷에서 진짜 disagreement 라인 관찰 후)
+- [ ] Tier 1 임계 false-positive 비율 1주 데이터 후 재평가

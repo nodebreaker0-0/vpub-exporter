@@ -46,8 +46,12 @@ publisher 의 실제 동작 (vote 성공, RPC disagreement) 은 **로그 파일 
 - **Target platform**: Linux amd64 (Tokyo region publisher 머신)
 - **Co-located**: vpub-exporter 와 validator-publisher.service 는 **같은 머신**에 배치 (로그 파일 직접 접근)
 - **Port**: 8002 (aqa-publisher-exporter 8001 다음 자리)
-- **User**: 가능하면 publisher 와 동일한 systemd user (`admin`) — 로그 read 권한 단순화
+- **User**: 가능하면 publisher 와 동일한 systemd user (`admin` testnet / `ubuntu` mainnet) — 로그 read 권한 단순화
 - **Resource budget**: RSS ≤ 100MB, CPU ≤ 5% (1 core 기준). 초과 시 design 재검토.
+- **systemd 격리** (운영 발견 2026-05-23):
+  - `PrivateTmp=no` 필수 — publisher 의 `/tmp/validator-publisher/` 컴포넌트 로그 read 위해.
+  - systemd dbus property 조회 시 `MainPID`/`NRestarts` 는 `Service` interface 에서 (`GetUnitTypePropertiesContext`). `Unit` interface 로는 None 반환.
+- **Alertmanager 분기 정책**: critical 6 룰은 mainnet 한정 (`network!="testnet"` matcher). 동일 expr 의 `<Name>Testnet` 복제가 alertLevel=high 로 따로 발화 — PagerDuty 노이즈 차단.
 
 ## Development Workflow
 

@@ -190,8 +190,14 @@
 - [x] R-002 ✅ 확정 — `YYYYMMDD` 단일 파일
 - [x] R-003 ✅ 확정 — 실패턴 추출, env.example default 갱신
 - [x] R-004 ✅ 확정 — 평균 4.3s, 임계 강력 조정
-- [ ] R-005 ⏸️ 메인넷 가동 후 (testnet votes=0)
-- [ ] R-006 ⏸️ HF 메인넷 binary URL announce 대기
-- [ ] R-007 ⏸️ 사용자 Slack channel ID 채움
-- [x] R-008 ✅ 확정 (독립 module path)
+- [ ] R-005 ⏸️ 메인넷 가동 후 (testnet votes=0). 임시 가설 `quorum=4`.
+- [ ] R-006 ⏸️ HF 메인넷 binary URL announce 대기. 추정 `https://binaries.hyperliquid.xyz/validator-publisher/visor`.
+- [x] R-007 ✅ 사용자 testnet 가동 시 channel ID 직접 주입 완료 (Slack 메시지 수신 확인)
+- [x] R-008 ✅ 확정 (독립 module path `github.com/bharvest/vpub-exporter`)
 - [x] R-009 ~ R-012 ✅ best practice 결정 완료
+- [x] **추가 발견 (R-013, 2026-05-23 운영)** — systemd dbus `MainPID`/`NRestarts` 는 `Service` interface 분리 호출 필수
+- [x] **추가 발견 (R-014)** — systemd unit `PrivateTmp=no` 필수 (publisher `/tmp/...` 격리 차단 X)
+- [x] **추가 발견 (R-015)** — publisher visor 가 child kill 후 1-3초 즉시 재spawn → `VpubChildMissing` 안전망 룰로 재정의 (SC-002 보정)
+- [x] **추가 발견 (R-016)** — `VpubLogStale` 에 `component!="visor"` 매처 (visor 자체 로그 빈도 낮음 — false-positive 차단)
+- [x] **추가 발견 (R-017)** — `VpubBridgeStaleVote` mainnet only (testnet 입금 0건 자연 발화 차단)
+- [x] **추가 발견 (R-018)** — critical 6 룰 mainnet 한정 + testnet `<Name>Testnet` (high) 복제 (PagerDuty noise 차단)

@@ -81,7 +81,7 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     description: "{{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge / oracle / outcome 중 일부 hang/사망."
 
 - alert: VpubLogStale
-  expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true'}) > 300
+  expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
   for: 2m
   labels:
     alertEvent: "vpub:log:stale"
@@ -94,7 +94,7 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     description: "{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분+ 갱신 없음 — hang 가능."
 
 - alert: VpubLogStaleLong
-  expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true'}) > 1800
+  expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 1800
   for: 1m
   labels:
     alertEvent: "vpub:log:stale_long"

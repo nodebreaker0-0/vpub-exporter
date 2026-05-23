@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+          cache: true
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - run: GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o /tmp/vpub-exporter ./cmd/vpub-exporter
+
+  promtool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install promtool
+        run: |
+          version=2.55.1
+          curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${version}/prometheus-${version}.linux-amd64.tar.gz" \
+            | tar -xz --strip-components=1 -C /usr/local/bin "prometheus-${version}.linux-amd64/promtool"
+          promtool --version
+      - name: check rules
+        run: |
+          if [ -d monitoring/rules ]; then
+            for f in monitoring/rules/*.yaml; do
+              [ -f "$f" ] || continue
+              echo "checking $f"
+              promtool check rules "$f"
+            done
+          else
+            echo "no rules yet"
+          fi

@@ -19,10 +19,10 @@
 
 **절차**:
 ```bash
-sudo systemctl stop v-publisher.service
+sudo systemctl stop validator-publisher.service
 date -u    # 정지 시각 기록
 # Slack #ddoa-critical 알람 도착 시각 기록
-sudo systemctl start v-publisher.service
+sudo systemctl start validator-publisher.service
 ```
 
 **기대**:
@@ -37,7 +37,7 @@ sudo systemctl start v-publisher.service
 **절차**:
 ```bash
 # visor PID 확인
-VISOR_PID=$(systemctl show -p MainPID --value v-publisher)
+VISOR_PID=$(systemctl show -p MainPID --value validator-publisher)
 # child 한 개 (예: bridge-voter) 강제 종료
 CHILD_PID=$(pgrep -P $VISOR_PID | head -1)
 sudo kill -9 $CHILD_PID

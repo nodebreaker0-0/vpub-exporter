@@ -15,7 +15,7 @@ import (
 // FR-003 / data-model.md Component.latest_log_mtime.
 //
 // Layout (R-001 confirmed, 2026-05-23):
-//   - visor logs live in VisorLogDir (--log-dir argument to v-publisher.service).
+//   - visor logs live in VisorLogDir (--log-dir argument to validator-publisher.service).
 //   - bridge-voter / reference-oracle-publisher / outcome-voter each live in
 //     ComponentLogDir/<name>/ — visor hard-codes /tmp/validator-publisher and
 //     never honors --log-dir for child components.

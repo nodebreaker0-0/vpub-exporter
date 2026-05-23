@@ -23,8 +23,8 @@ rules:
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub: v-publisher.service down"
-      description: "{{ $labels.instance }} v-publisher.service 1분+ inactive"
+      summary: "vpub: validator-publisher.service down"
+      description: "{{ $labels.instance }} validator-publisher.service 1분+ inactive"
   ...
 ```
 
@@ -64,8 +64,8 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub: v-publisher.service down"
-    description: "{{ $labels.instance }} v-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험."
+    summary: "vpub: validator-publisher.service down"
+    description: "{{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험."
 
 - alert: VpubChildMissing
   expr: vpub_child_count{disable_alarm!='true'} < 3

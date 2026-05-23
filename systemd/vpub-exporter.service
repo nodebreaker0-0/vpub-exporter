@@ -1,7 +1,7 @@
 [Unit]
 Description=vpub-exporter — read-only Prometheus exporter for hl-validator-publisher
 Documentation=https://github.com/bharvest/vpub-exporter
-After=network-online.target v-publisher.service
+After=network-online.target validator-publisher.service
 Wants=network-online.target
 # BindsTo intentionally NOT set — exporter must stay up even if v-publisher dies
 # (otherwise we lose the very alarm we exist for).
@@ -14,7 +14,7 @@ WorkingDirectory=/home/admin/vpub-exporter
 EnvironmentFile=/etc/vpub-exporter.env
 ExecStart=/home/admin/vpub-exporter/bin/vpub-exporter \
   --listen-addr=:8002 \
-  --service-name=v-publisher.service \
+  --service-name=validator-publisher.service \
   --scrape-interval=30s
 Restart=on-failure
 RestartSec=5s

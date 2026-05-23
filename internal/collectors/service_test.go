@@ -38,7 +38,7 @@ func (f *fakeLister) CountChildren(parentPID int) (int, error) {
 
 func newSvc(t *testing.T, probe *fakeProbe, lister *fakeLister) (*ServiceCollector, *prometheus.Registry) {
 	reg := prometheus.NewRegistry()
-	return NewServiceCollector(reg, probe, lister, "v-publisher.service"), reg
+	return NewServiceCollector(reg, probe, lister, "validator-publisher.service"), reg
 }
 
 func TestService_ActiveAndChildrenSet(t *testing.T) {

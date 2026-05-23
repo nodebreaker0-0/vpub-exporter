@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(go get *)",
+      "Bash(make build *)",
+      "Bash(go mod *)",
+      "Bash(make test *)",
+      "Bash(go build *)",
+      "Bash(make build-linux *)",
+      "Bash(make promtool-check *)",
+      "Bash(make verify *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import yaml; print\\(yaml.__version__\\)\")",
+      "Bash(brew install *)",
+      "Bash(brew list *)",
+      "Bash(python3 -c \"import yaml; print\\('yaml ok', yaml.__version__\\)\")",
+      "Bash(python3 -c \"import yaml; print\\('yaml', yaml.__version__\\)\")",
+      "Bash(go test *)",
+      "Bash(awk -F'\"' '{print $2}')"
+    ]
+  }
+}

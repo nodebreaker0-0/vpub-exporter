@@ -38,7 +38,7 @@ func TestDBusProbe_IsActive(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakeConn{props: map[string]interface{}{"ActiveState": c.state}}
-			p := newDBusProbeWithConn("v-publisher.service", f)
+			p := newDBusProbeWithConn("validator-publisher.service", f)
 			got, err := p.IsActive()
 			if (err != nil) != c.expectErr {
 				t.Fatalf("err = %v, expectErr=%v", err, c.expectErr)
@@ -46,7 +46,7 @@ func TestDBusProbe_IsActive(t *testing.T) {
 			if !c.expectErr && got != c.want {
 				t.Errorf("IsActive = %v, want %v", got, c.want)
 			}
-			if f.unitSeen != "v-publisher.service" {
+			if f.unitSeen != "validator-publisher.service" {
 				t.Errorf("unit asked = %q", f.unitSeen)
 			}
 		})
@@ -59,7 +59,7 @@ func TestDBusProbe_MainPID_NRestarts(t *testing.T) {
 		"MainPID":     uint32(1234),
 		"NRestarts":   uint32(2),
 	}}
-	p := newDBusProbeWithConn("v-publisher.service", f)
+	p := newDBusProbeWithConn("validator-publisher.service", f)
 
 	pid, err := p.MainPID()
 	if err != nil || pid != 1234 {
@@ -88,7 +88,7 @@ func TestDBusProbe_PropertyTypes(t *testing.T) {
 
 func TestDBusProbe_DBusError(t *testing.T) {
 	f := &fakeConn{err: errors.New("bus closed")}
-	p := newDBusProbeWithConn("v-publisher.service", f)
+	p := newDBusProbeWithConn("validator-publisher.service", f)
 	if _, err := p.IsActive(); err == nil {
 		t.Fatal("expected error")
 	}
@@ -96,7 +96,7 @@ func TestDBusProbe_DBusError(t *testing.T) {
 
 func TestDBusProbe_Close(t *testing.T) {
 	f := &fakeConn{}
-	p := newDBusProbeWithConn("v-publisher.service", f)
+	p := newDBusProbeWithConn("validator-publisher.service", f)
 	p.Close()
 	if !f.closed {
 		t.Error("Close should propagate")

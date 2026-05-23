@@ -44,7 +44,7 @@ publisher 의 실제 동작 (vote 성공, RPC disagreement) 은 **로그 파일 
 ## Operational Constraints
 
 - **Target platform**: Linux amd64 (Tokyo region publisher 머신)
-- **Co-located**: vpub-exporter 와 v-publisher.service 는 **같은 머신**에 배치 (로그 파일 직접 접근)
+- **Co-located**: vpub-exporter 와 validator-publisher.service 는 **같은 머신**에 배치 (로그 파일 직접 접근)
 - **Port**: 8002 (aqa-publisher-exporter 8001 다음 자리)
 - **User**: 가능하면 publisher 와 동일한 systemd user (`admin`) — 로그 read 권한 단순화
 - **Resource budget**: RSS ≤ 100MB, CPU ≤ 5% (1 core 기준). 초과 시 design 재검토.

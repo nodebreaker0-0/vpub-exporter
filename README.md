@@ -27,7 +27,7 @@ make verify                 # vet + test + promtool-check
 ```sh
 ./bin/vpub-exporter \
   --listen-addr :8002 \
-  --service-name v-publisher.service \
+  --service-name validator-publisher.service \
   --scrape-interval 30s
 ```
 

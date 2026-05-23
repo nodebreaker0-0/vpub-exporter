@@ -2,7 +2,7 @@
 // by the service collector. Concrete dbus impl lives in systemd_dbus.go.
 package systemd
 
-// ServiceProbe queries v-publisher.service status without modifying it.
+// ServiceProbe queries validator-publisher.service status without modifying it.
 // Implementations MUST NOT call start/stop/restart on the unit
 // (Constitution II — No Side Effects on Publisher).
 type ServiceProbe interface {

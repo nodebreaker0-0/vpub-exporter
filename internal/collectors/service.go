@@ -43,7 +43,7 @@ func NewServiceCollector(reg prometheus.Registerer, probe systemd.ServiceProbe, 
 		up: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: MetricNamespace,
 			Name:      "service_up",
-			Help:      "Whether v-publisher.service is active (1) or not (0). FR-001.",
+			Help:      "Whether validator-publisher.service is active (1) or not (0). FR-001.",
 		}),
 		childCount: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: MetricNamespace,

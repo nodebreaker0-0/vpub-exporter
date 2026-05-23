@@ -17,7 +17,7 @@
 
 **Acceptance Scenarios**:
 
-1. **Given** publisher 가 정상 가동 중, **When** `systemctl stop v-publisher` 실행, **Then** 1분 이내 critical 알람이 발생한다.
+1. **Given** publisher 가 정상 가동 중, **When** `systemctl stop validator-publisher` 실행, **Then** 1분 이내 critical 알람이 발생한다.
 2. **Given** publisher visor 는 살아있지만 child 1개가 hang/죽음, **When** child count 가 3 미만으로 30초 이상 지속, **Then** critical 알람이 발생한다.
 3. **Given** publisher 가 살아있지만 특정 컴포넌트 로그가 5분 이상 갱신되지 않음, **When** 임계 초과 2분 지속, **Then** high 알람이 발생한다 (hang 의심).
 4. **Given** 위 모든 상태, **When** publisher 정상화, **Then** alertmanager 가 resolve 알람을 자동 송신한다.
@@ -72,7 +72,7 @@
 
 #### Tier 0 — 프로세스 / 진행성 (P1)
 
-- **FR-001**: System MUST 5초 이내 주기로 `v-publisher.service` 의 systemd active 상태를 0/1 게이지로 노출한다.
+- **FR-001**: System MUST 5초 이내 주기로 `validator-publisher.service` 의 systemd active 상태를 0/1 게이지로 노출한다.
 - **FR-002**: System MUST visor 프로세스가 spawn 한 child 개수를 게이지로 노출한다 (정상=3).
 - **FR-003**: System MUST 각 컴포넌트 로그 디렉토리 (`visor`, `bridge-voter`, `reference-oracle-publisher`, `outcome-voter`) 의 최신 파일 mtime 을 unix sec 게이지로 30초 주기 갱신한다.
 - **FR-004**: System MUST systemd 서비스의 누적 restart 횟수를 카운터로 노출한다.

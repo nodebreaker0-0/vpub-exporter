@@ -21,7 +21,7 @@
 - **Source**: systemd dbus `ActiveState == "active"` → 1, else 0
 - **Refresh**: 5s
 - **FR**: FR-001
-- **Meaning**: v-publisher.service systemd active 상태.
+- **Meaning**: validator-publisher.service systemd active 상태.
 
 ### `vpub_child_count`
 - **Type**: Gauge (int)

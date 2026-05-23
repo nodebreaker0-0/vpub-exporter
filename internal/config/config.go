@@ -88,7 +88,7 @@ type Config struct {
 // R-001~007 가동 첫날 확정 후 백포트.
 const (
 	DefaultListenAddr      = ":8002"
-	DefaultServiceName     = "v-publisher.service"
+	DefaultServiceName     = "validator-publisher.service"
 	DefaultScrapeInterval  = 30 * time.Second
 	DefaultShutdownTimeout = 10 * time.Second
 	DefaultVisorLogDir     = "/home/admin/v-publisher/log" // testnet default; mainnet uses /home/ubuntu/...

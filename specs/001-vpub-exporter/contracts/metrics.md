@@ -69,11 +69,27 @@
 
 ### `vpub_bridge_rpc_check_total`
 - **Type**: Counter
-- **Labels**: `name=<rpc_name>`, `status=ok|fail|timeout`
+- **Labels**: `name=<rpc_name>`, `status=ok|fail|timeout|auth_error`
 - **Source**: RPC 헬스체크 결과 누적
 - **Refresh**: 30s
 - **FR**: FR-005
-- **Meaning**: 디버깅용 누적 카운터.
+- **Meaning**: 디버깅용 누적 카운터. `auth_error` = HTTP 401 (`Must be authenticated!`) — RPC 키 만료/오류 즉시 감지. testnet 5/22 alchemy 에서 실관찰.
+
+### `vpub_bridge_state_last_scanned_block`
+- **Type**: Gauge (int)
+- **Labels**: 없음
+- **Source**: `~/v-publisher/bridge-voter-<chain>-state.json` 의 `last_scanned_block` 필드 (JSON parse). 파일 read-only.
+- **Refresh**: 30s
+- **FR**: FR-012a
+- **Meaning**: bridge voter 가 Arbitrum 을 어디까지 스캔했는지 직접 값. PromQL `delta([5m]) == 0` → 진행 멈춤 = 매우 강한 health 시그널 (로그 mtime 보다 robust).
+
+### `vpub_bridge_state_mtime_unix`
+- **Type**: Gauge (unix sec)
+- **Labels**: 없음
+- **Source**: 위 state json 의 `stat().mtime`
+- **Refresh**: 30s
+- **FR**: FR-012a
+- **Meaning**: bridge voter 가 state 를 마지막으로 쓴 시각. 동일 last_scanned_block 이라도 파일이 계속 갱신되면 idle 동작 중.
 
 ### `vpub_bridge_rpc_disagreement_total`
 - **Type**: Counter

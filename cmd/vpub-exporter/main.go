@@ -46,8 +46,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	log.Printf("vpub-exporter starting: listen=%s service=%s log_dir=%s scrape=%s",
-		cfg.ListenAddr, cfg.ServiceName, cfg.LogDir, cfg.ScrapeInterval)
+	log.Printf("vpub-exporter starting: listen=%s service=%s visor_log=%s component_log=%s scrape=%s",
+		cfg.ListenAddr, cfg.ServiceName, cfg.VisorLogDir, cfg.ComponentLogDir, cfg.ScrapeInterval)
 	if cfg.HasSlack() {
 		log.Printf("slack: enabled (token=****redacted)")
 	}
@@ -74,7 +74,7 @@ func run() error {
 	lister := procs.New()
 	stat := logfs.New()
 	svc := vpubcoll.NewServiceCollector(reg, probe, lister, cfg.ServiceName)
-	logmt := vpubcoll.NewLogMtimeCollector(reg, stat, cfg.LogDir)
+	logmt := vpubcoll.NewLogMtimeCollector(reg, stat, cfg.VisorLogDir, cfg.ComponentLogDir)
 
 	// FR-001 (5s) / FR-002 (10s) / FR-003+004 (30s) — see contracts/metrics.md.
 	// Service tick handles up + child_count + restart_total; pick the tightest

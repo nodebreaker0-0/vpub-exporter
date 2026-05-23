@@ -39,9 +39,13 @@ type Config struct {
 	ScrapeInterval  time.Duration
 	ShutdownTimeout time.Duration
 
-	// Tier 0
-	ServiceName string // e.g. "v-publisher.service"
-	LogDir      string // e.g. "/home/admin/v-publisher/log"
+	// Tier 0 — R-001 confirmed (2026-05-23 testnet 9.7h):
+	//   visor self-log dir  = --log-dir argument (default /home/admin/v-publisher/log)
+	//   component log dir   = visor's hard-coded /tmp/validator-publisher (both networks)
+	// Mainnet runs as user=ubuntu so visor dir becomes /home/ubuntu/v-publisher/log via env.
+	ServiceName     string
+	VisorLogDir     string // visor's own log file directory
+	ComponentLogDir string // root of bridge-voter / reference-oracle-publisher / outcome-voter subdirs
 
 	// Tier 2
 	BinaryPath string
@@ -70,7 +74,8 @@ const (
 	DefaultServiceName     = "v-publisher.service"
 	DefaultScrapeInterval  = 30 * time.Second
 	DefaultShutdownTimeout = 10 * time.Second
-	DefaultLogDir          = "/home/admin/v-publisher/log"
+	DefaultVisorLogDir     = "/home/admin/v-publisher/log" // testnet default; mainnet uses /home/ubuntu/...
+	DefaultComponentLogDir = "/tmp/validator-publisher"    // visor hard-codes this; both networks
 	DefaultBinaryPath      = "/home/admin/v-publisher/visor"
 )
 
@@ -102,10 +107,15 @@ func Load(args []string, getenv func(string) string) (*Config, error) {
 		return nil, fmt.Errorf("flag parse: %w", err)
 	}
 
-	if v := getenv("VPUB_LOG_DIR"); v != "" {
-		cfg.LogDir = v
+	if v := getenv("VPUB_VISOR_LOG_DIR"); v != "" {
+		cfg.VisorLogDir = v
 	} else {
-		cfg.LogDir = DefaultLogDir
+		cfg.VisorLogDir = DefaultVisorLogDir
+	}
+	if v := getenv("VPUB_COMPONENT_LOG_DIR"); v != "" {
+		cfg.ComponentLogDir = v
+	} else {
+		cfg.ComponentLogDir = DefaultComponentLogDir
 	}
 	if v := getenv("VPUB_BINARY_PATH"); v != "" {
 		cfg.BinaryPath = v
@@ -156,8 +166,11 @@ func (c *Config) Validate() error {
 	if c.ScrapeInterval <= 0 {
 		return errors.New("scrape-interval must be > 0")
 	}
-	if c.LogDir == "" {
-		return errors.New("VPUB_LOG_DIR (or default) is empty")
+	if c.VisorLogDir == "" {
+		return errors.New("VPUB_VISOR_LOG_DIR (or default) is empty")
+	}
+	if c.ComponentLogDir == "" {
+		return errors.New("VPUB_COMPONENT_LOG_DIR (or default) is empty")
 	}
 	for _, n := range c.BridgeRPCNames {
 		if c.BridgeRPCURLs[n] == "" {

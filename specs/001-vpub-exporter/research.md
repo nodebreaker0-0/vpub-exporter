@@ -2,108 +2,103 @@
 
 본 문서는 spec.md 의 가정 / NEEDS CLARIFICATION 항목을 가동 첫날 (testnet) 에 실제로 확인하여 확정하기 위한 체크리스트다. 확정 결과는 본 문서를 갱신하고, 영향 받는 contracts/ 또는 plan.md 도 동기화한다.
 
-## R-001 — 로그 디렉토리 실제 경로
+## R-001 — 로그 디렉토리 실제 경로 ✅ 확정 (2026-05-23, testnet 9.7h)
 
-**질문**: publisher 의 컴포넌트 로그가 실제로 어디에 떨어지는가? `--log-dir log` (사용자 service) → `/home/admin/v-publisher/log/` 인지, README default `/tmp/validator-publisher/` 인지?
+**Gas pothesis 가 부분 틀렸음**.
 
-**Why it matters**: FR-003 (log mtime) 의 데이터 소스 경로. 잘못 잡으면 모든 Tier 0 알람 무력화.
+**확정 결과**:
+- visor 자체 로그: `~/v-publisher/log/YYYYMMDD` (service 의 `--log-dir log` 가 영향 — visor **자신만**)
+- 3 child 컴포넌트 로그: **`/tmp/validator-publisher/{bridge-voter,reference-oracle-publisher,outcome-voter}/YYYYMMDD`** (visor default, `--log-dir` 영향 X)
+- v-publisher.service.full 의 `PrivateTmp=false` 가 이 경로 의도. 정상.
 
-**확정 방법**:
-```bash
-# publisher 가동 후 10분 뒤
-ls -la /home/admin/v-publisher/log/
-ls -la /tmp/validator-publisher/ 2>/dev/null
-sudo find / -path /proc -prune -o -name "*.log" -newer /tmp/start-mark -print 2>/dev/null | head -30
-```
+**환경 차이**:
+- testnet 머신 user = `admin`, WorkingDirectory = `/home/admin/v-publisher`
+- mainnet 머신 user = `ubuntu`, WorkingDirectory = `/home/ubuntu/v-publisher`
+- `/tmp/validator-publisher` 는 user 무관 — 양쪽 동일.
 
-**확정 결과**: _(testnet 가동 후 채움)_
-
-**영향**: `VPUB_LOG_DIR` 환경변수 default. config 패키지 + systemd unit + env.example.
-
----
-
-## R-002 — 컴포넌트별 로그 파일명 패턴
-
-**질문**: 각 컴포넌트의 로그 파일이 `YYYYMMDD` 만인지, `.log` 접미사가 있는지, 별도 prefix 가 있는지?
-
-**Why it matters**: logfs 패키지의 "최신 파일 찾기" 로직.
-
-**확정 방법**:
-```bash
-ls -la /home/admin/v-publisher/log/bridge-voter/
-ls -la /home/admin/v-publisher/log/reference-oracle-publisher/
-ls -la /home/admin/v-publisher/log/outcome-voter/
-ls -la /home/admin/v-publisher/log/    # visor 자체
-```
-
-**확정 결과**: _(채움)_
-
-**영향**: `logfs.LatestFile()` 의 glob 패턴.
+**영향 (백포트 완료)**:
+- env.example: `VPUB_LOG_DIR` 한 변수 → **`VPUB_VISOR_LOG_DIR` + `VPUB_COMPONENT_LOG_DIR`** 둘로 분리
+- config.go default: 동일하게 두 변수
+- spec.md Assumptions §1 정정 필요
 
 ---
 
-## R-003 — Vote / Disagreement / Warn / Crit 로그 라인 패턴
+## R-002 — 컴포넌트별 로그 파일명 패턴 ✅ 확정
 
-**질문**: bridge / oracle 컴포넌트 로그에서 "vote submitted" / "vote failed" / "disagreement" / "warning" / "critical" 라인의 정확한 문자열은?
+**확정 결과**: 모든 컴포넌트 디렉토리에서 **`YYYYMMDD`** 단일 파일 (확장자 없음). 하루 1 파일, 자정 UTC 회전.
 
-**Why it matters**: FR-006 / 008 / 009 의 패턴 매칭 정확도.
+**영향**: `logfs.LatestFile()` 의 단순 "최신 mtime" 로직으로 충분. 별도 glob 필터 불필요.
 
-**확정 방법**:
-```bash
-# 1시간 가량 정상 가동 후
-grep -iE "vote|submit|fail|disagree|mismatch|warn|error|crit" \
-  /home/admin/v-publisher/log/bridge-voter/$(date -u +%Y%m%d) | head -50
-grep -iE "vote|submit|fail|warn|error|crit" \
-  /home/admin/v-publisher/log/reference-oracle-publisher/$(date -u +%Y%m%d) | head -50
-grep -iE "warn|error|crit" \
-  /home/admin/v-publisher/log/outcome-voter/$(date -u +%Y%m%d) | head -50
-```
-
-**확정 결과**: _(채움 — 패턴들을 정규식 형태로)_
-
-**영향**: env default 값:
-- `VPUB_VOTE_OK_PATTERNS`
-- `VPUB_VOTE_FAIL_PATTERNS`
-- `VPUB_DISAGREEMENT_PATTERNS`
-- `VPUB_LOG_WARN_PATTERNS`
-- `VPUB_LOG_CRIT_PATTERNS`
+추가 발견 — `reference-oracle-publisher/<TOKEN>/YYYYMMDD` 가 따로 존재 (170 토큰, 각 가격 raw JSON 로그). **본 exporter 의 모니터링 대상 아님** (cardinality 폭증 위험 + 정보 가치 낮음).
 
 ---
 
-## R-004 — Reference Oracle 게시 주기
+## R-003 — Vote / Disagreement / Warn / Crit 로그 라인 패턴 ✅ 확정
 
-**질문**: reference-oracle-publisher 가 vote 를 보내는 주기는 어느 정도인가? (분 단위 / 시간 단위 / epoch 단위?)
+**확정 결과** (9.7h testnet 로그):
 
-**Why it matters**: VpubOracleStaleVote 알람의 임계 (`> 7200`s 기본) 적정성. 사이클이 30분이면 7200s 는 4 사이클 → 너무 늦음.
+### bridge-voter (`validator_publisher::bridge_voter::{rpc,runner}`)
+- vote 카운터는 **라인 매칭이 아닌 숫자 추출**:
+  ```
+  2026-05-23T... INFO  validator_publisher::bridge_voter::runner: scanned from_block=N to_block=N
+    candidates_seen=N tracked_candidates=N
+    votes_sent=N votes_skipped=N votes_failed=N
+    deposits=N advanced_to="N"
+  ```
+  Δ(votes_sent) → `vpub_bridge_vote_total{status="ok"}` 증가, Δ(votes_failed) → `{status="fail"}` 증가.
+  9.7h testnet 동안 votes_sent=0, votes_failed=0 (입금 트래픽 0건 — 정상).
 
-**확정 방법**:
-```bash
-# 6시간 가량 가동 후, oracle 로그에서 ok vote 의 timestamp 분포
-grep -i "vote.*ok\|published\|submitted" \
-  /home/admin/v-publisher/log/reference-oracle-publisher/$(date -u +%Y%m%d) \
-  | awk '{print $1, $2}' | head -30
-```
+- RPC 헬스: `INFO  validator_publisher::bridge_voter::rpc: rpc {request|response} provider=X method="..." [status=200] ...`
+- RPC 실패: `WARN  validator_publisher::bridge_voter::runner: RPC failed eth_getLogs provider="X" error=...`
+  9.7h testnet 동안 15건, 전부 infura (`-32603: service temporarily unavailable`).
+- **disagreement 별도 단어 없음** — testnet votes=0 라 합의 라인 미관찰. 메인넷 가동 후 재관찰 필요.
 
-**확정 결과**: _(채움 — 평균/median 사이클)_
+### reference-oracle-publisher (`validator_publisher::reference_oracle_publisher::{publisher,sources}`, `validator_publisher::hyperliquid::exchange_client`)
+- vote ok: `INFO  validator_publisher::reference_oracle_publisher: oracle action sent`
+  → 다음 라인: `INFO  validator_publisher::hyperliquid::exchange_client: hyperliquid response status=200 response={"status":"ok",...}`
+  9.7h 동안 **8084건**, 평균 4.3초 간격, max 102초.
+- vote fail (가설): `hyperliquid response status=[45]xx` 또는 `response={"status":"err"...}`. testnet 9.7h 동안 0건.
+- WARN price drift (정상 동작): `WARN  validator_publisher::reference_oracle_publisher::publisher: non-trusted source price is (within|more than) 1% of trusted median source=X coin="Y" price=N median=N`
+  → 대량 발생 (2647건/3000초). 알람 X. WARN 카운터에서 제외 권장 (`outcome` 전용으로 변경).
+- ws 재연결 (정상): `WARN  validator_publisher::reference_oracle_publisher::sources: ws read error source="X"`
 
-**영향**: alerts.md 의 `VpubOracleStaleVote` 임계.
+### outcome-voter (`validator_publisher::outcome_voter`)
+- 정상: `INFO  validator_publisher::outcome_voter: spec check completed` (≈5초 주기, 9.7h 6181건)
+- WARN: 0건 관찰
+- CRIT: `CRIT  validator_publisher::outcome_voter: critical error failed to fetch outcome meta err=...` (9.7h 10건, 7:13~7:14 일시 502)
+
+**영향 (백포트 완료)**:
+- env.example 의 default 패턴 위 실제 문자열로 정정
+- `VPUB_LOG_WARN_PATTERNS` / `VPUB_LOG_CRIT_PATTERNS` 는 **outcome-voter 모듈 한정** (oracle WARN 폭주 제외)
+- `VPUB_VOTE_OK_PATTERNS` / `VPUB_VOTE_FAIL_PATTERNS` → bridge 의 votes_sent/votes_failed 정수 캡처 그룹 사용
+- `VPUB_ORACLE_OK_PATTERNS` / `VPUB_ORACLE_FAIL_PATTERNS` 분리 (oracle 별도 — 코드 변경 검토)
+- `VPUB_DISAGREEMENT_PATTERNS` → 임시로 "RPC failed" 매칭, 메인넷 후 재정정
 
 ---
 
-## R-005 — 메인넷 RPC Quorum 정확값
+## R-004 — Reference Oracle 게시 주기 ✅ 확정 (강력 조정 필요)
 
-**질문**: bridge voter 가 메인넷에서 vote 를 보내기 위해 동의해야 하는 RPC 개수의 정확한 값? (7개 중 4개? 5개? 다수결?)
+**확정 결과**: 평균 **4.3초**, max **102초** (testnet 9.7h, n=8084).
 
-**Why it matters**: `VpubBridgeRpcMajorityDown` 의 임계 (`< 4`) 정확성.
+**알람 임계 재조정**:
+- 현재 `VpubOracleStaleVote > 7200s` (2h) = **1675 사이클 미스** → **사실상 무용**
+- 권장:
+  - **>300s (5분, max=102s 의 3x 안전마진) → high**
+  - **>1800s (30m) → critical**
 
-**확정 방법**:
-- README 또는 binary --help 확인
-- 일부 RPC 의도적 down 시켜서 voter 동작 관찰 (testnet 안전 시험)
-- Jeff/HF 텔레그램 질문 (필요 시)
+**영향**: `monitoring/rules/hyperliquid_vpub_rule_tier1.yaml` 의 `VpubOracleStaleVote` 임계 정정 + 새 `VpubOracleStaleVoteLong` 추가.
 
-**확정 결과**: _(채움)_
+---
 
-**영향**: alerts.md 의 `VpubBridgeRpcMajorityDown` expr.
+## R-005 — 메인넷 RPC Quorum 정확값 ⏸️ 메인넷 가동 후 확정
+
+**testnet 관찰**: votes_sent=0 (입금 트래픽 0건) — 합의 라인 미관찰.
+
+**현재 임계**: `VpubBridgeRpcMajorityDown` `sum(vpub_bridge_rpc_up) < 4` (메인넷 7 → 4).
+
+**testnet 한정 별도 룰 필요할 수 있음**: testnet 3 RPC → `< 2` 로 별도 룰. 또는 network 라벨로 분기.
+
+**영향**: alerts.md 와 yaml 에 testnet/mainnet 룰 분리 필요. Phase N 시점에 처리.
 
 ---
 
@@ -191,6 +186,12 @@ grep -i "vote.*ok\|published\|submitted" \
 
 ## 완료 체크
 
-- [ ] R-001 ~ R-007: testnet 가동 후 확정
-- [x] R-008: ✅ 확정 (독립 module path)
-- [x] R-009 ~ R-012: best practice 결정 완료
+- [x] R-001 ✅ 확정 (2026-05-23, testnet 9.7h) — visor + component log dirs 분리
+- [x] R-002 ✅ 확정 — `YYYYMMDD` 단일 파일
+- [x] R-003 ✅ 확정 — 실패턴 추출, env.example default 갱신
+- [x] R-004 ✅ 확정 — 평균 4.3s, 임계 강력 조정
+- [ ] R-005 ⏸️ 메인넷 가동 후 (testnet votes=0)
+- [ ] R-006 ⏸️ HF 메인넷 binary URL announce 대기
+- [ ] R-007 ⏸️ 사용자 Slack channel ID 채움
+- [x] R-008 ✅ 확정 (독립 module path)
+- [x] R-009 ~ R-012 ✅ best practice 결정 완료

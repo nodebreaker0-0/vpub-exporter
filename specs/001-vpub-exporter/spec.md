@@ -79,13 +79,14 @@
 
 #### Tier 1 — 컴포넌트 본업 (P2)
 
-- **FR-005**: System MUST bridge-voter 의 각 Arbitrum RPC (이름별) 에 대해 30초 주기 헬스체크 (`eth_blockNumber` 또는 동등) 를 수행하고 `up{name}` 게이지 + latency 히스토그램 + check_total 카운터를 노출한다.
-- **FR-006**: System MUST bridge-voter 로그에서 vote 제출 결과 (성공/실패) 와 RPC disagreement 이벤트를 패턴 매칭으로 카운트한다.
+- **FR-005**: System MUST bridge-voter 의 각 Arbitrum RPC (이름별) 에 대해 30초 주기 헬스체크 (`eth_blockNumber` 또는 동등) 를 수행하고 `up{name}` 게이지 + latency 히스토그램 + check_total 카운터를 노출한다. **status=401 (인증 실패) 는 별도 카운터로 분리** (실로그 관찰됨).
+- **FR-006**: System MUST bridge-voter 로그에서 vote 제출 결과 (성공/실패) 와 RPC disagreement 이벤트를 패턴 매칭으로 카운트한다. vote fail 의 정확한 카운트는 **CRIT 개별 이벤트 라인** (`vote failed for deposit`) 을 사용 (scanned 라인의 `votes_failed=N` 은 cumulative gauge 라 counter 변환 부적합).
 - **FR-007**: System MUST bridge 와 reference-oracle 의 마지막 성공 vote unix timestamp 를 게이지로 노출한다.
-- **FR-008**: System MUST reference-oracle-publisher 로그에서 vote 결과 (성공/실패) 를 패턴 매칭으로 카운트한다.
-- **FR-009**: System MUST outcome-voter 로그의 warning / critical 라인을 카운트한다.
+- **FR-008**: System MUST reference-oracle-publisher 로그에서 vote 결과 (성공/실패) 를 패턴 매칭으로 카운트한다. ok = `oracle action sent`, fail = `hyperliquid response status=[45]xx`.
+- **FR-009**: System MUST outcome-voter 로그의 warning / critical 라인을 **outcome-voter 모듈 path 한정**으로 카운트한다 (oracle WARN price drift 폭주 제외).
 - **FR-010**: System MUST Slack `conversations.history` 로 `outcome_actions_channel` 의 최근 24h 메시지 수를 5분 주기로 게이지에 노출한다 (검토 적체 fallback 추적).
 - **FR-011**: System MUST Slack `auth.test` 를 1분 주기로 호출하고 토큰 유효성 0/1 게이지를 노출한다.
+- **FR-012a**: System MUST `~/v-publisher/bridge-voter-<chain>-state.json` (chain ∈ testnet/mainnet) 의 `last_scanned_block` 값을 게이지로 노출하고, 파일 mtime 도 별도 게이지로 노출한다. **로그 패턴보다 강한 진행성 시그널** — bridge voter 가 일을 하고 있는지 직접 확인.
 
 #### Tier 2 — 업그레이드 트래킹 (P3)
 
@@ -126,7 +127,9 @@
 ## Assumptions
 
 - publisher 머신은 dedicated, Tokyo region, systemd 가동, user=`admin`, WorkingDirectory `/home/admin/v-publisher/`.
-- 로그 디렉토리는 사용자 service 파일의 `--log-dir log` 즉 `/home/admin/v-publisher/log/` (default `/tmp/...` 가 아님). 가동 첫날 실제 경로 재확인 (research.md NEEDS CLARIFICATION).
+- 로그 디렉토리 (R-001 확정, 2026-05-23):
+  - visor 자체: `~/v-publisher/log/YYYYMMDD` (testnet user=admin / mainnet user=ubuntu)
+  - 3 child: **`/tmp/validator-publisher/{bridge-voter,reference-oracle-publisher,outcome-voter}/YYYYMMDD`** (`--log-dir` 영향 X — visor default 가 적용됨)
 - 모니터링 레포(`validator/monitoring/`)는 PR merge → parser → ansible 로 Prometheus 서버에 룰/스크레이프 자동 배포 가능 상태.
 - alertmanager 의 5종 alert_level 라우팅 (critical→PagerDuty+ddoa-critical / high→ddoa-high / medium/low→ddoa-low / disk→ddoa-disk) 은 그대로 사용.
 - Slack bot token 은 publisher config 와 동일 토큰 재사용 가능 (env 로 별도 주입, config.json 직접 파싱 X).

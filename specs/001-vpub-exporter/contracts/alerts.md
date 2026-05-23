@@ -197,7 +197,9 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     description: "{{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패"
 
 - alert: VpubOracleStaleVote
-  expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 7200
+  # R-004 ✅ 확정 (2026-05-23 testnet 9.7h): 평균 4.3s, max 102s.
+  # 임계 300s = max 의 3x 안전마진.
+  expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 300
   for: 5m
   labels:
     alertEvent: "vpub:oracle:stale_vote"
@@ -206,8 +208,51 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub oracle: 2h+ 성공 vote 없음"
-    description: "{{ $labels.instance }} 마지막 reference oracle update 이후 2h+ (R-004 확정 후 임계 조정)"
+    summary: "vpub oracle: 5m+ 성공 vote 없음"
+    description: "{{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)"
+
+- alert: VpubOracleStaleVoteLong
+  expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 1800
+  for: 1m
+  labels:
+    alertEvent: "vpub:oracle:stale_vote_long"
+    alertLevel: "critical"
+    instance: "{{ $labels.instance }}"
+    target: "{{ $labels.target }}"
+    chain: "hyperliquid"
+  annotations:
+    summary: "vpub oracle: 30m+ 성공 vote 없음"
+    description: "{{ $labels.instance }} reference oracle 사실상 정지 — oracle 미참여 손실"
+
+- alert: VpubBridgeStateStuck
+  # FR-012a — bridge-voter state.json 의 last_scanned_block 이 5분 이상 변하지 않음.
+  # 로그가 멈춰도 state 만 보면 알 수 있음. 가장 강한 bridge health 시그널.
+  expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true'}[5m]) == 0
+  for: 2m
+  labels:
+    alertEvent: "vpub:bridge:state_stuck"
+    alertLevel: "high"
+    instance: "{{ $labels.instance }}"
+    target: "{{ $labels.target }}"
+    chain: "hyperliquid"
+  annotations:
+    summary: "vpub bridge: state 진행 멈춤 (5m)"
+    description: "{{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — Arbitrum 스캔 정지"
+
+- alert: VpubBridgeRpcAuthError
+  # FR-005 보강 — RPC HTTP 401 (Must be authenticated!) 누적 감지.
+  # testnet 5/22 에서 alchemy 키 만료로 실제 관찰. 키 교체 즉시 필요.
+  expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true'}[10m]) > 5
+  for: 1m
+  labels:
+    alertEvent: "vpub:bridge:rpc_auth_error"
+    alertLevel: "high"
+    instance: "{{ $labels.instance }}"
+    target: "{{ $labels.target }}"
+    chain: "hyperliquid"
+  annotations:
+    summary: "vpub bridge: RPC {{ $labels.name }} 인증 실패 빈발"
+    description: "10분 내 RPC 401 응답 {{ $value }}회 — 키 만료/오류 의심"
 
 - alert: VpubOutcomePendingLong
   expr: vpub_outcome_slack_msg_24h{disable_alarm!='true'} > 5

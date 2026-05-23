@@ -18,12 +18,12 @@ func TestOutcomeLogs_WarnAndCritCounted(t *testing.T) {
 	critPat := regexp.MustCompile(`(?i)\bcrit`)
 
 	cfg := &config.Config{
-		LogDir:           "/log",
+		ComponentLogDir:  "/clog",
 		LogWarnPatterns:  []string{warnPat.String()},
 		LogCritPatterns:  []string{critPat.String()},
 	}
 
-	dir := "/log/outcome-voter"
+	dir := "/clog/outcome-voter"
 	now := time.Unix(1_700_000_000, 0)
 	tailer := &fakeTailer{emit: map[string][]logtail.Match{
 		dir: {

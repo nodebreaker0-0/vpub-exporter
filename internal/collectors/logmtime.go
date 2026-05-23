@@ -14,22 +14,25 @@ import (
 // LogMtimeCollector exports vpub_component_log_mtime_seconds {component=...}.
 // FR-003 / data-model.md Component.latest_log_mtime.
 //
-// Layout assumption (data-model.md):
-//   - visor logs sit DIRECTLY under LogDir (no per-component subdir).
-//   - the other three components each have their own subdir named after the
-//     component (e.g. <LogDir>/bridge-voter/).
+// Layout (R-001 confirmed, 2026-05-23):
+//   - visor logs live in VisorLogDir (--log-dir argument to v-publisher.service).
+//   - bridge-voter / reference-oracle-publisher / outcome-voter each live in
+//     ComponentLogDir/<name>/ — visor hard-codes /tmp/validator-publisher and
+//     never honors --log-dir for child components.
 type LogMtimeCollector struct {
-	stat   logfs.LogDirStat
-	logDir string
+	stat            logfs.LogDirStat
+	visorLogDir     string
+	componentLogDir string
 
 	mtime *prometheus.GaugeVec
 }
 
 // NewLogMtimeCollector registers the gauge vec on reg.
-func NewLogMtimeCollector(reg prometheus.Registerer, stat logfs.LogDirStat, logDir string) *LogMtimeCollector {
+func NewLogMtimeCollector(reg prometheus.Registerer, stat logfs.LogDirStat, visorLogDir, componentLogDir string) *LogMtimeCollector {
 	c := &LogMtimeCollector{
-		stat:   stat,
-		logDir: logDir,
+		stat:            stat,
+		visorLogDir:     visorLogDir,
+		componentLogDir: componentLogDir,
 		mtime: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: MetricNamespace,
 			Name:      "component_log_mtime_seconds",
@@ -37,21 +40,19 @@ func NewLogMtimeCollector(reg prometheus.Registerer, stat logfs.LogDirStat, logD
 		}, []string{"component"}),
 	}
 	reg.MustRegister(c.mtime)
-	// Pre-create one zero series per known component so the alert rule's
-	// `time() - vpub_component_log_mtime_seconds > 300` does not silently
-	// miss a fresh, never-logged component.
 	for _, name := range config.AllComponents {
 		c.mtime.WithLabelValues(string(name)).Set(0)
 	}
 	return c
 }
 
-// dirFor returns the absolute path for the given component (data-model.md).
+// dirFor returns the absolute path for the given component.
+// R-001: visor and child components live on DIFFERENT filesystem trees.
 func (c *LogMtimeCollector) dirFor(comp config.ComponentName) string {
 	if comp == config.ComponentVisor {
-		return c.logDir
+		return c.visorLogDir
 	}
-	return filepath.Join(c.logDir, string(comp))
+	return filepath.Join(c.componentLogDir, string(comp))
 }
 
 // CollectorName for self-metrics.

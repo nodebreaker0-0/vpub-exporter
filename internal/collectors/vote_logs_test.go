@@ -40,14 +40,14 @@ func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
 	disagreePat := regexp.MustCompile(`(?i)disagree`)
 
 	cfg := &config.Config{
-		LogDir: "/log",
+		ComponentLogDir:      "/clog",
 		VoteOKPatterns:       []string{okPat.String()},
 		VoteFailPatterns:     []string{failPat.String()},
 		DisagreementPatterns: []string{disagreePat.String()},
 	}
 
-	bridgeDir := "/log/bridge-voter"
-	oracleDir := "/log/reference-oracle-publisher"
+	bridgeDir := "/clog/bridge-voter"
+	oracleDir := "/clog/reference-oracle-publisher"
 
 	now := time.Unix(1_700_000_000, 0)
 	tailer := &fakeTailer{emit: map[string][]logtail.Match{
@@ -107,7 +107,7 @@ func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
 
 func TestVoteLogs_InitialGaugesAreExporterStart(t *testing.T) {
 	cfg := &config.Config{
-		LogDir:               "/log",
+		ComponentLogDir:      "/clog",
 		VoteOKPatterns:       []string{`ok`},
 		VoteFailPatterns:     []string{`fail`},
 		DisagreementPatterns: []string{`disagree`},

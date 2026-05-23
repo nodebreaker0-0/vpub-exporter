@@ -24,8 +24,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ScrapeInterval != DefaultScrapeInterval {
 		t.Errorf("ScrapeInterval = %v, want %v", cfg.ScrapeInterval, DefaultScrapeInterval)
 	}
-	if cfg.LogDir != DefaultLogDir {
-		t.Errorf("LogDir = %q, want %q", cfg.LogDir, DefaultLogDir)
+	if cfg.VisorLogDir != DefaultVisorLogDir {
+		t.Errorf("VisorLogDir = %q, want %q", cfg.VisorLogDir, DefaultVisorLogDir)
+	}
+	if cfg.ComponentLogDir != DefaultComponentLogDir {
+		t.Errorf("ComponentLogDir = %q, want %q", cfg.ComponentLogDir, DefaultComponentLogDir)
 	}
 	if cfg.BinaryPath != DefaultBinaryPath {
 		t.Errorf("BinaryPath = %q", cfg.BinaryPath)
@@ -67,18 +70,22 @@ func TestLoad_FlagsOverride(t *testing.T) {
 
 func TestLoad_EnvOverride(t *testing.T) {
 	env := map[string]string{
-		"VPUB_LOG_DIR":         "/tmp/v-publisher/log",
-		"VPUB_BINARY_PATH":     "/usr/local/bin/visor",
-		"VPUB_BINARY_URL":      "https://example.com/visor",
-		"VPUB_SLACK_BOT_TOKEN": "fake-bot-token",
-		"VPUB_OUTCOME_CHANNEL": "C12345",
+		"VPUB_VISOR_LOG_DIR":     "/home/ubuntu/v-publisher/log",
+		"VPUB_COMPONENT_LOG_DIR": "/var/tmp/validator-publisher",
+		"VPUB_BINARY_PATH":       "/usr/local/bin/visor",
+		"VPUB_BINARY_URL":        "https://example.com/visor",
+		"VPUB_SLACK_BOT_TOKEN":   "fake-bot-token",
+		"VPUB_OUTCOME_CHANNEL":   "C12345",
 	}
 	cfg, err := Load(nil, envFromMap(env))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.LogDir != "/tmp/v-publisher/log" {
-		t.Errorf("LogDir = %q", cfg.LogDir)
+	if cfg.VisorLogDir != "/home/ubuntu/v-publisher/log" {
+		t.Errorf("VisorLogDir = %q", cfg.VisorLogDir)
+	}
+	if cfg.ComponentLogDir != "/var/tmp/validator-publisher" {
+		t.Errorf("ComponentLogDir = %q", cfg.ComponentLogDir)
 	}
 	if cfg.BinaryPath != "/usr/local/bin/visor" {
 		t.Errorf("BinaryPath = %q", cfg.BinaryPath)

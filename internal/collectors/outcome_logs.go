@@ -48,7 +48,8 @@ func (c *OutcomeLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {
 	warnPats, _ := logtail.CompilePatterns(c.cfg.LogWarnPatterns)
 	critPats, _ := logtail.CompilePatterns(c.cfg.LogCritPatterns)
 
-	dir := filepath.Join(c.cfg.LogDir, string(config.ComponentOutcomeVoter))
+	// R-001: outcome-voter lives under ComponentLogDir.
+	dir := filepath.Join(c.cfg.ComponentLogDir, string(config.ComponentOutcomeVoter))
 	all := combine(warnPats, critPats, nil)
 	ch, err := c.tailer.Subscribe(ctx, dir, all)
 	if err != nil {

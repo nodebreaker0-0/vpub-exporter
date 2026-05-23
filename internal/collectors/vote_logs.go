@@ -96,8 +96,9 @@ func (c *VoteLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {
 	failPats, _ := logtail.CompilePatterns(c.cfg.VoteFailPatterns)
 	disagreePats, _ := logtail.CompilePatterns(c.cfg.DisagreementPatterns)
 
-	bridgeDir := filepath.Join(c.cfg.LogDir, string(config.ComponentBridgeVoter))
-	oracleDir := filepath.Join(c.cfg.LogDir, string(config.ComponentReferenceOraclePublish))
+	// R-001: children live under ComponentLogDir, not VisorLogDir.
+	bridgeDir := filepath.Join(c.cfg.ComponentLogDir, string(config.ComponentBridgeVoter))
+	oracleDir := filepath.Join(c.cfg.ComponentLogDir, string(config.ComponentReferenceOraclePublish))
 
 	// Bridge tail — matches OK, FAIL, and DISAGREEMENT (three groups in one stream).
 	bridgePats := combine(okPats, failPats, disagreePats)

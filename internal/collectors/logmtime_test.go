@@ -53,7 +53,7 @@ func gaugeValByLabel(t *testing.T, reg *prometheus.Registry, metricName, labelNa
 func TestLogMtime_AllFourComponentsSeries(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	stat := &fakeStat{mtimes: map[string]time.Time{}}
-	c := NewLogMtimeCollector(reg, stat, "/log")
+	c := NewLogMtimeCollector(reg, stat, "/visorlog", "/complog")
 
 	// Before Tick: pre-created zero series for all 4 components.
 	for _, comp := range config.AllComponents {
@@ -64,18 +64,19 @@ func TestLogMtime_AllFourComponentsSeries(t *testing.T) {
 	_ = c
 }
 
-func TestLogMtime_VisorPathIsLogDirItself(t *testing.T) {
+func TestLogMtime_VisorAndComponentDirsAreSeparate(t *testing.T) {
+	// R-001: visor logs and child component logs live on different trees.
 	reg := prometheus.NewRegistry()
 	now := time.Unix(1_700_000_000, 0)
 	stat := &fakeStat{
 		mtimes: map[string]time.Time{
-			"/log":                            now,
-			"/log/bridge-voter":               now.Add(-1 * time.Minute),
-			"/log/reference-oracle-publisher": now.Add(-2 * time.Minute),
-			"/log/outcome-voter":              now.Add(-3 * time.Minute),
+			"/visorlog":                            now,
+			"/complog/bridge-voter":               now.Add(-1 * time.Minute),
+			"/complog/reference-oracle-publisher": now.Add(-2 * time.Minute),
+			"/complog/outcome-voter":              now.Add(-3 * time.Minute),
 		},
 	}
-	c := NewLogMtimeCollector(reg, stat, "/log")
+	c := NewLogMtimeCollector(reg, stat, "/visorlog", "/complog")
 	if _, err := c.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -90,12 +91,11 @@ func TestLogMtime_VisorPathIsLogDirItself(t *testing.T) {
 func TestLogMtime_DirErrorKeepsPreviousValue(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	stat := &fakeStat{
-		mtimes: map[string]time.Time{"/log": time.Unix(1_700_000_000, 0)},
+		mtimes: map[string]time.Time{"/visorlog": time.Unix(1_700_000_000, 0)},
 		err:    map[string]error{},
 	}
-	c := NewLogMtimeCollector(reg, stat, "/log")
+	c := NewLogMtimeCollector(reg, stat, "/visorlog", "/complog")
 
-	// Round 1: only visor populated; rest return (zero, "", nil) — set to 0.
 	if _, err := c.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -104,8 +104,7 @@ func TestLogMtime_DirErrorKeepsPreviousValue(t *testing.T) {
 		t.Errorf("visor v1 = %v", v1)
 	}
 
-	// Round 2: visor dir now errors — gauge should KEEP v1 (no regression to 0).
-	stat.err["/log"] = errors.New("eperm")
+	stat.err["/visorlog"] = errors.New("eperm")
 	kind, err := c.Tick(context.Background())
 	if err == nil {
 		t.Fatal("expected error")
@@ -122,7 +121,7 @@ func TestLogMtime_DirErrorKeepsPreviousValue(t *testing.T) {
 func TestLogMtime_EmptyDirYieldsZero(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	stat := &fakeStat{mtimes: map[string]time.Time{}} // all dirs return zero
-	c := NewLogMtimeCollector(reg, stat, "/log")
+	c := NewLogMtimeCollector(reg, stat, "/visorlog", "/complog")
 	if _, err := c.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
@@ -140,7 +139,7 @@ func TestLogMtime_EmptyDirYieldsZero(t *testing.T) {
 func TestLogMtime_LabelSetMatchesContract(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	stat := &fakeStat{mtimes: map[string]time.Time{}}
-	_ = NewLogMtimeCollector(reg, stat, "/log")
+	_ = NewLogMtimeCollector(reg, stat, "/visorlog", "/complog")
 	mfs, err := reg.Gather()
 	if err != nil {
 		t.Fatal(err)

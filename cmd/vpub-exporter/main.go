@@ -103,6 +103,10 @@ func run() error {
 	}
 	tailer := logtail.NewPolling(tailLatest)
 	tailer.PollInterval = 2 * time.Second
+	// HTML continuation guard (R-001/E) — 502 Bad Gateway responses can land
+	// multi-line in the log; only lines starting with an RFC-3339 date are
+	// real log records.
+	tailer.LinePrefix = logtail.PublisherTimestampPrefix
 
 	voteLogs := vpubcoll.NewVoteLogsCollector(reg, cfg, stat, tailer)
 	outcomeLogs := vpubcoll.NewOutcomeLogsCollector(reg, cfg, tailer)

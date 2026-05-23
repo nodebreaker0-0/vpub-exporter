@@ -171,6 +171,73 @@ func TestCompilePatterns_SkipsInvalid(t *testing.T) {
 	}
 }
 
+func TestPolling_SkipsHTMLContinuationLines(t *testing.T) {
+	// Regression (testnet 5/22): 502 Bad Gateway HTML body dropped multi-line
+	// into the log file. The word "Bad" appeared 52 times in 9.7h, all of
+	// them inside the HTML continuation. With LinePrefix = timestamp regex,
+	// none of those should match a Bad-Gateway-shaped pattern.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "20260522")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fl := &fakeLatest{}
+	fl.set(path)
+
+	tailer := &PollingTailer{
+		LatestFileFn: fl.fn,
+		PollInterval: 20 * time.Millisecond,
+		LinePrefix:   PublisherTimestampPrefix,
+	}
+	// Pattern is intentionally generic (would match anything containing "Bad").
+	patterns := []*regexp.Regexp{regexp.MustCompile(`Bad`)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ch, err := tailer.Subscribe(ctx, dir, patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(60 * time.Millisecond)
+
+	// Real publisher log line (has timestamp prefix, contains "Bad")
+	appendLine(t, path, "2026-05-22T10:00:00Z INFO normal Bad token oops\n")
+	// HTML 502 response dumped as continuation (no timestamp prefix)
+	appendLine(t, path, "<html>\n")
+	appendLine(t, path, "<head><title>502 Bad Gateway</title></head>\n")
+	appendLine(t, path, "<body>nginx Bad Gateway</body>\n")
+	appendLine(t, path, "</html>\n")
+
+	lines := collect(ch, time.Now().Add(300*time.Millisecond))
+	if len(lines) != 1 {
+		t.Fatalf("emit count = %d, want exactly 1 (only the timestamped line); lines = %v", len(lines), lines)
+	}
+	if lines[0] != "2026-05-22T10:00:00Z INFO normal Bad token oops" {
+		t.Errorf("unexpected line: %q", lines[0])
+	}
+}
+
+func TestPolling_LinePrefixNilStillEmits(t *testing.T) {
+	// Backward-compat: leaving LinePrefix nil disables the guard.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "20260522")
+	_ = os.WriteFile(path, nil, 0o644)
+	fl := &fakeLatest{}
+	fl.set(path)
+	tailer := &PollingTailer{LatestFileFn: fl.fn, PollInterval: 20 * time.Millisecond}
+	patterns := []*regexp.Regexp{regexp.MustCompile(`anything`)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	ch, _ := tailer.Subscribe(ctx, dir, patterns)
+	time.Sleep(60 * time.Millisecond)
+	appendLine(t, path, "no-timestamp-here anything matches\n")
+	lines := collect(ch, time.Now().Add(300*time.Millisecond))
+	if len(lines) != 1 {
+		t.Errorf("nil LinePrefix should emit; got %d lines", len(lines))
+	}
+}
+
 func TestPolling_CtxCancelClosesChannel(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "20260523"), []byte(""), 0o644); err != nil {

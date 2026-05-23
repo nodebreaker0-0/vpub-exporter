@@ -34,7 +34,19 @@ type PollingTailer struct {
 	LatestFileFn func(dir string) (string, error)
 	// PollInterval is how often new lines and rotation are checked.
 	PollInterval time.Duration
+
+	// LinePrefix, when non-nil, filters out lines that do NOT match it.
+	// testnet 5/22 실관찰: HTTP 502 Bad Gateway 응답이 멀티-라인 HTML 로
+	// 로그에 그대로 떨어지는 케이스가 있어, 단순 단어 매칭이 false-positive 를
+	//유발. publisher 의 모든 valid 라인은 "<RFC3339 timestamp>" 로 시작하므로,
+	// 그 prefix 가 없는 라인은 직전 라인의 연장으로 보고 매칭에서 제외.
+	// nil = filter off (legacy).
+	LinePrefix *regexp.Regexp
 }
+
+// PublisherTimestampPrefix matches the leading "YYYY-MM-DDT" of every valid
+// publisher log line. Set this as PollingTailer.LinePrefix in production.
+var PublisherTimestampPrefix = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T`)
 
 // NewPolling returns a tailer with sane defaults.
 func NewPolling(latest func(dir string) (string, error)) *PollingTailer {
@@ -148,6 +160,13 @@ func (t *PollingTailer) drain(ctx context.Context, f *os.File, off *int64, path 
 			// full line including '\n'
 			*off += int64(len(line))
 			stripped := line[:len(line)-1]
+			// Multi-line HTML / stack-trace continuation guard (R-001/E):
+			// if a LinePrefix is configured and this line lacks it, skip
+			// pattern matching entirely. The line was already consumed from
+			// the offset, so the partial-line invariant is preserved.
+			if t.LinePrefix != nil && !t.LinePrefix.MatchString(stripped) {
+				continue
+			}
 			for _, p := range patterns {
 				if p.MatchString(stripped) {
 					select {

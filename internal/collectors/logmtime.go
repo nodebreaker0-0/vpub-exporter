@@ -7,8 +7,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/bharvest/vpub-exporter/internal/config"
-	"github.com/bharvest/vpub-exporter/internal/logfs"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/config"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/logfs"
 )
 
 // LogMtimeCollector exports vpub_component_log_mtime_seconds {component=...}.

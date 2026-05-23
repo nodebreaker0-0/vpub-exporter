@@ -24,14 +24,14 @@ import (
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	vpubcoll "github.com/bharvest/vpub-exporter/internal/collectors"
-	"github.com/bharvest/vpub-exporter/internal/config"
-	"github.com/bharvest/vpub-exporter/internal/logfs"
-	"github.com/bharvest/vpub-exporter/internal/logtail"
-	"github.com/bharvest/vpub-exporter/internal/procs"
-	"github.com/bharvest/vpub-exporter/internal/rpc"
-	"github.com/bharvest/vpub-exporter/internal/slackapi"
-	"github.com/bharvest/vpub-exporter/internal/systemd"
+	vpubcoll "github.com/nodebreaker0-0/vpub-exporter/internal/collectors"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/config"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/logfs"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/logtail"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/procs"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/rpc"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/slackapi"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/systemd"
 )
 
 func main() {

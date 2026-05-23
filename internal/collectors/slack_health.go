@@ -6,7 +6,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/bharvest/vpub-exporter/internal/slackapi"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/slackapi"
 )
 
 // SlackHealthCollector exports vpub_slack_api_ok (FR-011).

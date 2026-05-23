@@ -9,8 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
-	"github.com/bharvest/vpub-exporter/internal/config"
-	"github.com/bharvest/vpub-exporter/internal/logtail"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/config"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/logtail"
 )
 
 func TestOutcomeLogs_WarnAndCritCounted(t *testing.T) {

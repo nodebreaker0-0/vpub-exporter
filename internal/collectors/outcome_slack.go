@@ -7,7 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/bharvest/vpub-exporter/internal/slackapi"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/slackapi"
 )
 
 // OutcomeSlackCollector exports vpub_outcome_slack_msg_24h.

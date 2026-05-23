@@ -7,8 +7,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/bharvest/vpub-exporter/internal/procs"
-	"github.com/bharvest/vpub-exporter/internal/systemd"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/procs"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/systemd"
 )
 
 // ServiceCollector exports the Tier 0 service-level metrics:

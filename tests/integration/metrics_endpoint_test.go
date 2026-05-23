@@ -11,7 +11,7 @@ import (
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	vpubcoll "github.com/bharvest/vpub-exporter/internal/collectors"
+	vpubcoll "github.com/nodebreaker0-0/vpub-exporter/internal/collectors"
 )
 
 // bootRegistry mirrors what cmd/vpub-exporter/main.go does at boot, so the

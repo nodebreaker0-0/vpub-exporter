@@ -10,7 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 
-	"github.com/bharvest/vpub-exporter/internal/config"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/config"
 )
 
 // fakeStat lets us inject deterministic mtimes for the 4 component dirs.

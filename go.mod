@@ -1,4 +1,4 @@
-module github.com/bharvest/vpub-exporter
+module github.com/nodebreaker0-0/vpub-exporter
 
 go 1.23.0
 

@@ -8,7 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/bharvest/vpub-exporter/internal/rpc"
+	"github.com/nodebreaker0-0/vpub-exporter/internal/rpc"
 )
 
 // BridgeRPCCollector probes every Arbitrum RPC the bridge-voter is configured with.

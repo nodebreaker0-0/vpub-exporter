@@ -171,15 +171,15 @@
 - **Type**: Gauge (unix sec)
 - **Labels**: 없음
 - **Source**: HTTP HEAD `VPUB_BINARY_URL` → `Last-Modified` 헤더 파싱
-- **Refresh**: 10m
+- **Refresh**: 1m (사용자 결정 2026-05-23 — 기존 10m 은 detection 41분, 1m 으로 ~3분 단축)
 - **FR**: FR-013
-- **Meaning**: HF 가 게시한 최신 publisher 바이너리의 수정 시각.
+- **Meaning**: HF 가 게시한 최신 publisher 바이너리의 수정 시각. 에러 시 직전 값 유지.
 
 ### `vpub_binary_remote_check_ok`
 - **Type**: Gauge (0/1)
 - **Labels**: 없음
 - **Source**: 위 HEAD 호출 성공 여부
-- **Refresh**: 10m
+- **Refresh**: 1m (위와 동기)
 - **FR**: FR-013
 - **Meaning**: 업그레이드 트래킹 활성/비활성. 0 = URL 변경/네트워크 단절.
 

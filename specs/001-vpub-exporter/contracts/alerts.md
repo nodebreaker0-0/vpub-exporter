@@ -285,10 +285,14 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
 
 ## 3. Tier 2 룰 (US3) — 2 건
 
+> **임계 단축 (사용자 결정 2026-05-23)**: 기존 detection 최대 41분 (HEAD 10m
+> + expr >3600s + for 30m) → 새 budget 약 3분 (HEAD 1m + expr >60s + for 1m).
+> trade-off: 매분 HEAD ≈ 60 req/h — 무시 가능. HF announce 즉시 운영자 알림.
+
 ```yaml
 - alert: VpubBinaryUpdateAvailable
-  expr: (vpub_binary_remote_mtime_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 3600
-  for: 30m
+  expr: (vpub_binary_remote_mtime_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 60
+  for: 1m
   labels:
     alertEvent: "vpub:binary:update"
     alertLevel: "medium"
@@ -296,12 +300,12 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub: 새 publisher 바이너리 announced"
-    description: "remote mtime > local +1h — 변경 사항 검토 후 수동 업그레이드 필요"
+    summary: "vpub: 새 publisher 바이너리 announced (remote +{{ $value }}s)"
+    description: "{{ $labels.instance }} remote Last-Modified 가 local mtime 보다 1분+ 신규 — HF announce. 변경사항 검토 후 수동 업그레이드."
 
 - alert: VpubBinaryRemoteCheckFail
   expr: vpub_binary_remote_check_ok{disable_alarm!='true'} == 0
-  for: 1h
+  for: 10m
   labels:
     alertEvent: "vpub:binary:check_fail"
     alertLevel: "low"
@@ -309,8 +313,8 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub: binary URL HEAD 실패"
-    description: "{{ $labels.instance }} 업그레이드 트래킹 비활성 — URL/네트워크 점검"
+    summary: "vpub: binary URL HEAD 10m+ 실패"
+    description: "{{ $labels.instance }} 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검."
 ```
 
 ---

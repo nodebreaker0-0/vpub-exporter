@@ -51,12 +51,12 @@
 
 **Why this priority**: 즉시 위기는 아니지만 놓치면 oracle/bridge 거동 차이로 운영 분기. 가동 안정 후 추가하면 충분.
 
-**Independent Test**: 임의의 더미 URL 을 `VPUB_BINARY_URL` 에 넣고 그 URL 의 `Last-Modified` 가 로컬 바이너리 mtime 보다 +1h 가 되도록 만든 뒤 medium 알람 발생 확인.
+**Independent Test**: 임의의 더미 URL 을 `VPUB_BINARY_URL` 에 넣고 그 URL 의 `Last-Modified` 가 로컬 바이너리 mtime 보다 +60초 가 되도록 만든 뒤 ~3분 내 medium 알람 발생 확인.
 
-**Acceptance Scenarios**:
+**Acceptance Scenarios** (임계 단축 — 사용자 결정 2026-05-23):
 
-1. **Given** publisher 바이너리 로컬 mtime, **When** binaries URL HEAD 의 `Last-Modified` 가 local +1h 이상 신규, **Then** 30분 후 medium 알람 ("새 바이너리 announced").
-2. **Given** URL HEAD 가 1시간 동안 실패, **When** 변경 트래킹 비활성 상태, **Then** low 알람 ("URL 변경 여부 확인 필요").
+1. **Given** publisher 바이너리 로컬 mtime, **When** binaries URL HEAD 의 `Last-Modified` 가 local +60초 이상 신규, **Then** 1분 후 medium 알람 ("새 바이너리 announced") — HEAD 1m + expr >60s + for 1m = ~3분 detection.
+2. **Given** URL HEAD 가 10분 동안 실패, **When** 변경 트래킹 비활성 상태, **Then** low 알람 ("URL 변경 여부 확인 필요").
 
 ---
 
@@ -93,7 +93,7 @@
 #### Tier 2 — 업그레이드 트래킹 (P3)
 
 - **FR-012**: System MUST publisher 바이너리 로컬 파일 mtime 을 unix sec 게이지로 노출한다.
-- **FR-013**: System MUST `VPUB_BINARY_URL` 의 HTTP HEAD `Last-Modified` 를 10분 주기로 폴링하고 remote mtime 게이지 + check_ok 게이지를 노출한다.
+- **FR-013**: System MUST `VPUB_BINARY_URL` 의 HTTP HEAD `Last-Modified` 를 **1분** 주기로 폴링하고 remote mtime 게이지 + check_ok 게이지를 노출한다. (사용자 결정 2026-05-23: 기존 10분 → 1분 단축. 매분 HEAD ≈ 60 req/h, detection budget ~3분.)
 
 #### 운영 / 보안 / 통합 요구사항
 

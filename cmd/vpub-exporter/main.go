@@ -24,6 +24,7 @@ import (
 	promcollectors "github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/nodebreaker0-0/vpub-exporter/internal/binary"
 	vpubcoll "github.com/nodebreaker0-0/vpub-exporter/internal/collectors"
 	"github.com/nodebreaker0-0/vpub-exporter/internal/config"
 	"github.com/nodebreaker0-0/vpub-exporter/internal/logfs"
@@ -120,6 +121,17 @@ func run() error {
 		if cfg.OutcomeChannel != "" {
 			osCol := vpubcoll.NewOutcomeSlackCollector(reg, slack, cfg.SlackBotToken, cfg.OutcomeChannel)
 			go osCol.Start(ctx, exMetrics, 5*time.Minute)
+		}
+	}
+
+	// Tier 2 (Phase 5 / US3) — binary upgrade tracking.
+	// Local stat is cheap (60s). Remote HEAD is 1m per 사용자 결정 — old 10m
+	// took 41분 to detect, 1m + expr>60 + for 1m = ~3분 detection budget.
+	if cfg.BinaryPath != "" || cfg.HasBinaryRemote() {
+		bc := vpubcoll.NewBinaryCollector(reg, binary.NewHTTPProbe(), cfg.BinaryPath, cfg.BinaryURL)
+		go bc.StartLocal(ctx, exMetrics, 60*time.Second)
+		if cfg.HasBinaryRemote() {
+			go bc.StartRemote(ctx, exMetrics, 60*time.Second)
 		}
 	}
 

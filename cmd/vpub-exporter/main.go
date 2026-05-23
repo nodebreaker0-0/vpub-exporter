@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -26,7 +27,10 @@ import (
 	vpubcoll "github.com/bharvest/vpub-exporter/internal/collectors"
 	"github.com/bharvest/vpub-exporter/internal/config"
 	"github.com/bharvest/vpub-exporter/internal/logfs"
+	"github.com/bharvest/vpub-exporter/internal/logtail"
 	"github.com/bharvest/vpub-exporter/internal/procs"
+	"github.com/bharvest/vpub-exporter/internal/rpc"
+	"github.com/bharvest/vpub-exporter/internal/slackapi"
 	"github.com/bharvest/vpub-exporter/internal/systemd"
 )
 
@@ -68,14 +72,48 @@ func run() error {
 	probe, closeProbe := serviceProbe(ctx, cfg.ServiceName)
 	defer closeProbe()
 	lister := procs.New()
+	stat := logfs.New()
 	svc := vpubcoll.NewServiceCollector(reg, probe, lister, cfg.ServiceName)
-	logmt := vpubcoll.NewLogMtimeCollector(reg, logfs.New(), cfg.LogDir)
+	logmt := vpubcoll.NewLogMtimeCollector(reg, stat, cfg.LogDir)
 
 	// FR-001 (5s) / FR-002 (10s) / FR-003+004 (30s) — see contracts/metrics.md.
 	// Service tick handles up + child_count + restart_total; pick the tightest
 	// requested cadence (5s).
 	go svc.Start(ctx, exMetrics, 5*time.Second)
 	go logmt.Start(ctx, exMetrics, cfg.ScrapeInterval)
+
+	// Tier 1 collectors (Phase 4 / US2). Each is wired only when the
+	// corresponding config is present — partial deployment is supported.
+	if cfg.HasBridgeRPC() {
+		brc := vpubcoll.NewBridgeRPCCollector(reg, rpc.NewHTTPProbe(), cfg.BridgeRPCNames, cfg.BridgeRPCURLs)
+		go brc.Start(ctx, exMetrics, cfg.ScrapeInterval) // 30s
+	}
+	// Log tailers share one OS impl (PollingTailer needs LatestFileFn — we
+	// give it logfs.New().LatestMtime, ignoring the returned mtime).
+	tailLatest := func(dir string) (string, error) {
+		_, name, err := stat.LatestMtime(dir)
+		if err != nil || name == "" {
+			return "", err
+		}
+		return filepath.Join(dir, name), nil
+	}
+	tailer := logtail.NewPolling(tailLatest)
+	tailer.PollInterval = 2 * time.Second
+
+	voteLogs := vpubcoll.NewVoteLogsCollector(reg, cfg, stat, tailer)
+	outcomeLogs := vpubcoll.NewOutcomeLogsCollector(reg, cfg, tailer)
+	go voteLogs.Start(ctx, exMetrics)
+	go outcomeLogs.Start(ctx, exMetrics)
+
+	if cfg.HasSlack() {
+		slack := slackapi.NewHTTPClient()
+		sh := vpubcoll.NewSlackHealthCollector(reg, slack, cfg.SlackBotToken)
+		go sh.Start(ctx, exMetrics, 60*time.Second)
+		if cfg.OutcomeChannel != "" {
+			osCol := vpubcoll.NewOutcomeSlackCollector(reg, slack, cfg.SlackBotToken, cfg.OutcomeChannel)
+			go osCol.Start(ctx, exMetrics, 5*time.Minute)
+		}
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{

@@ -1,0 +1,47 @@
+[Unit]
+Description=vpub-exporter — read-only Prometheus exporter for hl-validator-publisher
+Documentation=https://github.com/bharvest/vpub-exporter
+After=network-online.target v-publisher.service
+Wants=network-online.target
+# BindsTo intentionally NOT set — exporter must stay up even if v-publisher dies
+# (otherwise we lose the very alarm we exist for).
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/vpub-exporter
+EnvironmentFile=/etc/vpub-exporter.env
+ExecStart=/home/admin/vpub-exporter/bin/vpub-exporter \
+  --listen-addr=:8002 \
+  --service-name=v-publisher.service \
+  --scrape-interval=30s
+Restart=on-failure
+RestartSec=5s
+
+# Security — Constitution II / IV.
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+# Make the publisher tree explicitly read-only to this unit (defense in depth).
+ReadOnlyPaths=/home/admin/v-publisher
+# /etc/vpub-exporter.env is mode 0600 — readable only to root + admin
+LimitNOFILE=65536
+LimitNPROC=512
+
+# Resource budget — constitution Operational Constraints.
+MemoryMax=200M
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

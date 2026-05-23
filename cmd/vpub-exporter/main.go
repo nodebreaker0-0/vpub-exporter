@@ -25,6 +25,9 @@ import (
 
 	vpubcoll "github.com/bharvest/vpub-exporter/internal/collectors"
 	"github.com/bharvest/vpub-exporter/internal/config"
+	"github.com/bharvest/vpub-exporter/internal/logfs"
+	"github.com/bharvest/vpub-exporter/internal/procs"
+	"github.com/bharvest/vpub-exporter/internal/systemd"
 )
 
 func main() {
@@ -61,8 +64,18 @@ func run() error {
 	ctx, cancel := signalContext()
 	defer cancel()
 
-	// Phase 3+ wires real collectors onto exMetrics + reg.
-	_ = exMetrics
+	// Tier 0 collectors (Phase 3 / US1 / MVP).
+	probe, closeProbe := serviceProbe(ctx, cfg.ServiceName)
+	defer closeProbe()
+	lister := procs.New()
+	svc := vpubcoll.NewServiceCollector(reg, probe, lister, cfg.ServiceName)
+	logmt := vpubcoll.NewLogMtimeCollector(reg, logfs.New(), cfg.LogDir)
+
+	// FR-001 (5s) / FR-002 (10s) / FR-003+004 (30s) — see contracts/metrics.md.
+	// Service tick handles up + child_count + restart_total; pick the tightest
+	// requested cadence (5s).
+	go svc.Start(ctx, exMetrics, 5*time.Second)
+	go logmt.Start(ctx, exMetrics, cfg.ScrapeInterval)
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -112,3 +125,22 @@ func run() error {
 func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 }
+
+// serviceProbe constructs a real dbus probe, falling back to a probe that
+// always errors so the service collector still ticks (and vpub_service_up
+// stays at 0, which is the correct alarm signal).
+// The returned close func is safe to call even when the fallback is used.
+func serviceProbe(ctx context.Context, unit string) (systemd.ServiceProbe, func()) {
+	p, err := systemd.NewDBusProbe(ctx, unit)
+	if err != nil {
+		log.Printf("systemd probe init failed (vpub_service_up will stay 0): %v", err)
+		return errProbe{err: err}, func() {}
+	}
+	return p, p.Close
+}
+
+type errProbe struct{ err error }
+
+func (e errProbe) IsActive() (bool, error) { return false, e.err }
+func (e errProbe) MainPID() (int, error)   { return 0, e.err }
+func (e errProbe) NRestarts() (int, error) { return 0, e.err }

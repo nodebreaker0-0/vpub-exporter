@@ -35,15 +35,20 @@ func (f *fakeTailer) Subscribe(ctx context.Context, dir string, _ []*regexp.Rege
 }
 
 func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
-	okPat := regexp.MustCompile(`(?i)vote.*(submitted|ok)`)
-	failPat := regexp.MustCompile(`(?i)vote.*(fail|error)`)
-	disagreePat := regexp.MustCompile(`(?i)disagree`)
+	// R-003: bridge ok / fail / disagree, oracle ok / fail all distinct patterns.
+	bridgeOK := regexp.MustCompile(`bridge_voter::runner: scanned .* votes_sent=[1-9]\d*`)
+	bridgeFail := regexp.MustCompile(`CRIT\s+validator_publisher::bridge_voter::runner: critical error vote failed`)
+	disagree := regexp.MustCompile(`WARN\s+validator_publisher::bridge_voter::runner: RPC failed`)
+	oracleOK := regexp.MustCompile(`reference_oracle_publisher: oracle action sent`)
+	oracleFail := regexp.MustCompile(`exchange_client: hyperliquid response status=[45]\d\d`)
 
 	cfg := &config.Config{
-		ComponentLogDir:      "/clog",
-		VoteOKPatterns:       []string{okPat.String()},
-		VoteFailPatterns:     []string{failPat.String()},
-		DisagreementPatterns: []string{disagreePat.String()},
+		ComponentLogDir:        "/clog",
+		VoteOKPatterns:         []string{bridgeOK.String()},
+		VoteFailPatterns:       []string{bridgeFail.String()},
+		DisagreementPatterns:   []string{disagree.String()},
+		OracleVoteOKPatterns:   []string{oracleOK.String()},
+		OracleVoteFailPatterns: []string{oracleFail.String()},
 	}
 
 	bridgeDir := "/clog/bridge-voter"
@@ -52,14 +57,14 @@ func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	tailer := &fakeTailer{emit: map[string][]logtail.Match{
 		bridgeDir: {
-			{Line: "vote submitted", Pattern: okPat, At: now},
-			{Line: "vote failed", Pattern: failPat, At: now.Add(1 * time.Second)},
-			{Line: "rpc disagree", Pattern: disagreePat, At: now.Add(2 * time.Second)},
-			{Line: "vote OK", Pattern: okPat, At: now.Add(3 * time.Second)},
+			{Line: "ts INFO  validator_publisher::bridge_voter::runner: scanned from_block=1 to_block=2 votes_sent=3 votes_failed=0", Pattern: bridgeOK, At: now},
+			{Line: "ts CRIT  validator_publisher::bridge_voter::runner: critical error vote failed for deposit foo", Pattern: bridgeFail, At: now.Add(1 * time.Second)},
+			{Line: "ts WARN  validator_publisher::bridge_voter::runner: RPC failed alchemy", Pattern: disagree, At: now.Add(2 * time.Second)},
+			{Line: "ts INFO  validator_publisher::bridge_voter::runner: scanned from_block=2 to_block=3 votes_sent=1", Pattern: bridgeOK, At: now.Add(3 * time.Second)},
 		},
 		oracleDir: {
-			{Line: "vote ok", Pattern: okPat, At: now.Add(10 * time.Second)},
-			{Line: "vote error", Pattern: failPat, At: now.Add(11 * time.Second)},
+			{Line: "ts INFO  validator_publisher::reference_oracle_publisher: oracle action sent", Pattern: oracleOK, At: now.Add(10 * time.Second)},
+			{Line: "ts INFO  validator_publisher::hyperliquid::exchange_client: hyperliquid response status=500", Pattern: oracleFail, At: now.Add(11 * time.Second)},
 		},
 	}}
 
@@ -77,9 +82,9 @@ func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
 	<-ctx.Done()
 	<-done
 
-	// bridge: ok=2, fail=1, disagree=1
-	if v := testutil.ToFloat64(c.bridgeVoteTot.WithLabelValues("ok")); v != 2 {
-		t.Errorf("bridge ok = %v, want 2", v)
+	// R-003: bridge ok counter stays at 0 (cumulative line — only advances timestamp).
+	if v := testutil.ToFloat64(c.bridgeVoteTot.WithLabelValues("ok")); v != 0 {
+		t.Errorf("bridge ok counter = %v, want 0 (R-003: timestamp-only)", v)
 	}
 	if v := testutil.ToFloat64(c.bridgeVoteTot.WithLabelValues("fail")); v != 1 {
 		t.Errorf("bridge fail = %v, want 1", v)
@@ -87,30 +92,30 @@ func TestVoteLogs_MixedBridgeAndOracle(t *testing.T) {
 	if v := testutil.ToFloat64(c.bridgeDisagreeTot); v != 1 {
 		t.Errorf("disagree = %v, want 1", v)
 	}
-	// oracle: ok=1, fail=1
+	// oracle: separate counters increment normally.
 	if v := testutil.ToFloat64(c.oracleVoteTot.WithLabelValues("ok")); v != 1 {
 		t.Errorf("oracle ok = %v, want 1", v)
 	}
 	if v := testutil.ToFloat64(c.oracleVoteTot.WithLabelValues("fail")); v != 1 {
 		t.Errorf("oracle fail = %v, want 1", v)
 	}
-	// last vote success unix gauges advanced past initial (exporter start time)
-	bridgeLast := testutil.ToFloat64(c.bridgeLastOK)
-	oracleLast := testutil.ToFloat64(c.oracleLastOK)
-	if bridgeLast != float64(now.Add(3*time.Second).Unix()) {
-		t.Errorf("bridge last OK = %v, want %d", bridgeLast, now.Add(3*time.Second).Unix())
+	// last_vote_success_unix gauges advance to latest matching event.
+	if v := testutil.ToFloat64(c.bridgeLastOK); v != float64(now.Add(3*time.Second).Unix()) {
+		t.Errorf("bridge last OK = %v, want %d", v, now.Add(3*time.Second).Unix())
 	}
-	if oracleLast != float64(now.Add(10*time.Second).Unix()) {
-		t.Errorf("oracle last OK = %v, want %d", oracleLast, now.Add(10*time.Second).Unix())
+	if v := testutil.ToFloat64(c.oracleLastOK); v != float64(now.Add(10*time.Second).Unix()) {
+		t.Errorf("oracle last OK = %v, want %d", v, now.Add(10*time.Second).Unix())
 	}
 }
 
 func TestVoteLogs_InitialGaugesAreExporterStart(t *testing.T) {
 	cfg := &config.Config{
-		ComponentLogDir:      "/clog",
-		VoteOKPatterns:       []string{`ok`},
-		VoteFailPatterns:     []string{`fail`},
-		DisagreementPatterns: []string{`disagree`},
+		ComponentLogDir:        "/clog",
+		VoteOKPatterns:         []string{`ok`},
+		VoteFailPatterns:       []string{`fail`},
+		DisagreementPatterns:   []string{`disagree`},
+		OracleVoteOKPatterns:   []string{`oracle_ok`},
+		OracleVoteFailPatterns: []string{`oracle_fail`},
 	}
 	reg := prometheus.NewRegistry()
 	before := float64(time.Now().Unix())

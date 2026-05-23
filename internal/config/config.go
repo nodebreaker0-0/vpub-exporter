@@ -59,12 +59,23 @@ type Config struct {
 	SlackBotToken  string
 	OutcomeChannel string
 
-	// Tier 1 — 로그 패턴 (env override 가능, FR-020)
-	VoteOKPatterns       []string
-	VoteFailPatterns     []string
-	DisagreementPatterns []string
-	LogWarnPatterns      []string
-	LogCritPatterns      []string
+	// Tier 1 — 로그 패턴 (env override 가능, FR-020).
+	// R-003 confirmed (2026-05-23 testnet 9.7h, 8084 oracle events / 222 bridge CRIT):
+	//   - bridge ok : scanned line w/ votes_sent>0 (cumulative — used ONLY to
+	//                 advance bridge_last_vote_success_unix; never increments counter)
+	//   - bridge fail: CRIT validator_publisher::bridge_voter::runner: critical error vote failed
+	//                  (개별 이벤트 라인)
+	//   - disagree (임시): WARN bridge_voter::runner: RPC failed
+	//   - oracle  ok : INFO reference_oracle_publisher: oracle action sent
+	//   - oracle fail: INFO exchange_client: hyperliquid response status=[45]xx
+	//   - outcome WARN/CRIT: outcome-voter 모듈 path 한정 — oracle WARN price drift 제외
+	VoteOKPatterns         []string // bridge — last_vote_success_unix 트리거 (counter X)
+	VoteFailPatterns       []string // bridge CRIT
+	DisagreementPatterns   []string // bridge disagreement (임시)
+	OracleVoteOKPatterns   []string // oracle action sent
+	OracleVoteFailPatterns []string // oracle 4xx/5xx response
+	LogWarnPatterns        []string // outcome-voter 한정
+	LogCritPatterns        []string // outcome-voter 한정
 }
 
 // Default values. spec.md / research.md 에서 가정된 값들.
@@ -79,13 +90,38 @@ const (
 	DefaultBinaryPath      = "/home/admin/v-publisher/visor"
 )
 
-// defaultPatterns — research.md R-003 가동 첫날 실측 후 정정.
+// defaultPatterns — R-003 confirmed (2026-05-23 testnet logs).
+// Patterns are bound to the real Rust module paths emitted by validator-publisher.
+// Mainnet 가동 후 변동 시 env override (VPUB_*_PATTERNS).
 var (
-	defaultVoteOKPatterns       = []string{`(?i)vote.*(submitted|ok|success)`, `(?i)published`}
-	defaultVoteFailPatterns     = []string{`(?i)vote.*(fail|error)`}
-	defaultDisagreementPatterns = []string{`(?i)disagree`, `(?i)mismatch`, `(?i)consensus failure`}
-	defaultLogWarnPatterns      = []string{`(?i)\bwarn\b`, `WARN`}
-	defaultLogCritPatterns      = []string{`(?i)\bcrit`, `ERROR`, `FATAL`}
+	// bridge: trigger for last_vote_success_unix only (counter is intentionally
+	// not incremented — votes_sent is cumulative in the scanned line).
+	defaultVoteOKPatterns = []string{
+		`validator_publisher::bridge_voter::runner: scanned .* votes_sent=[1-9]\d*`,
+	}
+	// bridge: individual CRIT event per failed deposit vote (testnet 5/22: 222 events).
+	defaultVoteFailPatterns = []string{
+		`CRIT\s+validator_publisher::bridge_voter::runner: critical error vote failed`,
+	}
+	// bridge: 임시 — mainnet 에서 진짜 RPC disagreement 라인 관찰 시 재정.
+	defaultDisagreementPatterns = []string{
+		`WARN\s+validator_publisher::bridge_voter::runner: RPC failed`,
+	}
+	// oracle: 4.3s 평균 (testnet 8084건).
+	defaultOracleVoteOKPatterns = []string{
+		`validator_publisher::reference_oracle_publisher: oracle action sent`,
+	}
+	// oracle: 4xx/5xx response from hyperliquid exchange client.
+	defaultOracleVoteFailPatterns = []string{
+		`validator_publisher::hyperliquid::exchange_client: hyperliquid response status=[45]\d\d`,
+	}
+	// outcome-voter scoped — oracle 의 price drift WARN 라인 제외.
+	defaultLogWarnPatterns = []string{
+		`WARN\s+validator_publisher::outcome_voter`,
+	}
+	defaultLogCritPatterns = []string{
+		`(CRIT|ERROR)\s+validator_publisher::outcome_voter`,
+	}
 )
 
 // Load reads flags from `fs` and env from `getenv`. Flag args come from `args`.
@@ -141,6 +177,8 @@ func Load(args []string, getenv func(string) string) (*Config, error) {
 	cfg.VoteOKPatterns = splitOrDefault(getenv("VPUB_VOTE_OK_PATTERNS"), defaultVoteOKPatterns)
 	cfg.VoteFailPatterns = splitOrDefault(getenv("VPUB_VOTE_FAIL_PATTERNS"), defaultVoteFailPatterns)
 	cfg.DisagreementPatterns = splitOrDefault(getenv("VPUB_DISAGREEMENT_PATTERNS"), defaultDisagreementPatterns)
+	cfg.OracleVoteOKPatterns = splitOrDefault(getenv("VPUB_ORACLE_OK_PATTERNS"), defaultOracleVoteOKPatterns)
+	cfg.OracleVoteFailPatterns = splitOrDefault(getenv("VPUB_ORACLE_FAIL_PATTERNS"), defaultOracleVoteFailPatterns)
 	cfg.LogWarnPatterns = splitOrDefault(getenv("VPUB_LOG_WARN_PATTERNS"), defaultLogWarnPatterns)
 	cfg.LogCritPatterns = splitOrDefault(getenv("VPUB_LOG_CRIT_PATTERNS"), defaultLogCritPatterns)
 

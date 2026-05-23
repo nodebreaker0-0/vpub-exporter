@@ -14,22 +14,24 @@ import (
 )
 
 func TestOutcomeLogs_WarnAndCritCounted(t *testing.T) {
-	warnPat := regexp.MustCompile(`(?i)\bwarn\b`)
-	critPat := regexp.MustCompile(`(?i)\bcrit`)
+	// R-003: outcome-voter scoped (NOT generic \bwarn\b — that would catch
+	// oracle price-drift warnings).
+	warnPat := regexp.MustCompile(`WARN\s+validator_publisher::outcome_voter`)
+	critPat := regexp.MustCompile(`(CRIT|ERROR)\s+validator_publisher::outcome_voter`)
 
 	cfg := &config.Config{
-		ComponentLogDir:  "/clog",
-		LogWarnPatterns:  []string{warnPat.String()},
-		LogCritPatterns:  []string{critPat.String()},
+		ComponentLogDir: "/clog",
+		LogWarnPatterns: []string{warnPat.String()},
+		LogCritPatterns: []string{critPat.String()},
 	}
 
 	dir := "/clog/outcome-voter"
 	now := time.Unix(1_700_000_000, 0)
 	tailer := &fakeTailer{emit: map[string][]logtail.Match{
 		dir: {
-			{Line: "x warn y", Pattern: warnPat, At: now},
-			{Line: "fatal crit z", Pattern: critPat, At: now.Add(1 * time.Second)},
-			{Line: "another warn", Pattern: warnPat, At: now.Add(2 * time.Second)},
+			{Line: "ts WARN  validator_publisher::outcome_voter: something off", Pattern: warnPat, At: now},
+			{Line: "ts ERROR validator_publisher::outcome_voter: oh no", Pattern: critPat, At: now.Add(1 * time.Second)},
+			{Line: "ts WARN  validator_publisher::outcome_voter: another", Pattern: warnPat, At: now.Add(2 * time.Second)},
 		},
 	}}
 

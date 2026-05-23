@@ -91,24 +91,27 @@ func (c *VoteLogsCollector) CollectorName() string { return "vote_logs" }
 
 // Start subscribes the tailer to bridge and oracle log dirs and consumes matches.
 // Returns when ctx is canceled.
+//
+// R-003: bridge and oracle use SEPARATE pattern sets (oracle ok/fail are
+// independent of bridge ok/fail — they live in different Rust modules with
+// distinct log formats).
 func (c *VoteLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {
-	okPats, _ := logtail.CompilePatterns(c.cfg.VoteOKPatterns)
-	failPats, _ := logtail.CompilePatterns(c.cfg.VoteFailPatterns)
-	disagreePats, _ := logtail.CompilePatterns(c.cfg.DisagreementPatterns)
+	bridgeOK, _ := logtail.CompilePatterns(c.cfg.VoteOKPatterns)
+	bridgeFail, _ := logtail.CompilePatterns(c.cfg.VoteFailPatterns)
+	disagree, _ := logtail.CompilePatterns(c.cfg.DisagreementPatterns)
+	oracleOK, _ := logtail.CompilePatterns(c.cfg.OracleVoteOKPatterns)
+	oracleFail, _ := logtail.CompilePatterns(c.cfg.OracleVoteFailPatterns)
 
 	// R-001: children live under ComponentLogDir, not VisorLogDir.
 	bridgeDir := filepath.Join(c.cfg.ComponentLogDir, string(config.ComponentBridgeVoter))
 	oracleDir := filepath.Join(c.cfg.ComponentLogDir, string(config.ComponentReferenceOraclePublish))
 
-	// Bridge tail — matches OK, FAIL, and DISAGREEMENT (three groups in one stream).
-	bridgePats := combine(okPats, failPats, disagreePats)
-	bridgeCh, err := c.tailer.Subscribe(ctx, bridgeDir, bridgePats)
+	bridgeCh, err := c.tailer.Subscribe(ctx, bridgeDir, combine(bridgeOK, bridgeFail, disagree))
 	if err != nil {
 		em.CollectionErrors.WithLabelValues(c.CollectorName(), string(KindIO)).Inc()
 		return
 	}
-	oraclePats := combine(okPats, failPats, nil)
-	oracleCh, err := c.tailer.Subscribe(ctx, oracleDir, oraclePats)
+	oracleCh, err := c.tailer.Subscribe(ctx, oracleDir, combine(oracleOK, oracleFail, nil))
 	if err != nil {
 		em.CollectionErrors.WithLabelValues(c.CollectorName(), string(KindIO)).Inc()
 		return
@@ -126,7 +129,7 @@ func (c *VoteLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {
 				}
 				continue
 			}
-			c.classifyBridge(m, okPats, failPats, disagreePats)
+			c.classifyBridge(m, bridgeOK, bridgeFail, disagree)
 		case m, ok := <-oracleCh:
 			if !ok {
 				oracleCh = nil
@@ -135,21 +138,23 @@ func (c *VoteLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {
 				}
 				continue
 			}
-			c.classifyOracle(m, okPats, failPats)
+			c.classifyOracle(m, oracleOK, oracleFail)
 		}
 	}
 }
 
 // classifyBridge applies disagreement → ok → fail precedence to one match.
-// Classification is by re-matching the line against each set so that pattern
-// identity is irrelevant (and tests can use their own regex objects).
+//
+// R-003: bridge ok ("scanned ... votes_sent=N") matches the cumulative summary
+// line, NOT individual vote events. We therefore use it ONLY to advance the
+// last_vote_success_unix gauge — incrementing the counter on every scan tick
+// would overstate vote volume. Counter for `status="ok"` stays at 0 by design.
 func (c *VoteLogsCollector) classifyBridge(m logtail.Match, okPats, failPats, disagreePats []*regexp.Regexp) {
 	if lineMatchesAny(m.Line, disagreePats) {
 		c.bridgeDisagreeTot.Inc()
 		return
 	}
 	if lineMatchesAny(m.Line, okPats) {
-		c.bridgeVoteTot.WithLabelValues("ok").Inc()
 		c.bridgeLastOK.Set(float64(m.At.Unix()))
 		return
 	}

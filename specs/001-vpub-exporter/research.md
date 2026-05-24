@@ -202,6 +202,7 @@
 - [x] **추가 발견 (R-017)** — `VpubBridgeStaleVote` mainnet only (testnet 입금 0건 자연 발화 차단)
 - [x] **추가 발견 (R-018)** — critical 6 룰 mainnet 한정 + testnet `<Name>Testnet` (high) 복제 (PagerDuty noise 차단)
 - [x] **추가 발견 (R-019, 2026-05-24)** — visor 가 child binary 3개를 자체 `/<child>/active` polling 으로 자동 동기화. visor 만 추적해선 child update/실패 불검출.
+- [x] **추가 발견 (R-019b, 2026-05-24)** — mainnet 환경 차이 3건 식별 (사용자 보고): ubuntu homedir / 7 RPC / 로그량 ~10× testnet. 코드 변경 없이 systemd drop-in + env.mainnet.example + R-005 실측 절차 + 부하 측정 스크립트로 흡수.
 
 ---
 
@@ -240,5 +241,24 @@
 - 옵션 C (logtail count only): retry 가 정상 self-heal 도 발화 → noise. 채택 X.
 
 **임계**: download_started 후 60s 안에 mtime 미갱신 + `for: 1m` 추가 안정. 총 timeout ~120s.
+
+---
+
+## R-019b — mainnet 환경 차이 흡수 (2026-05-24 사용자 보고)
+
+**Decision**: 코드는 그대로, **배포 산출물 (systemd drop-in + env example + 부하 측정 가이드) 로 환경 차이 흡수**. 메인넷 가동 시점 코드 빌드/배포 없이 cp/install + systemctl daemon-reload 만으로 완료.
+
+| 메인넷 차이 | 흡수 방식 | 산출물 |
+|---|---|---|
+| User: admin → ubuntu | systemd drop-in `mainnet.conf` 에 `User=ubuntu`, `ReadOnlyPaths=/home/ubuntu/v-publisher` | `systemd/mainnet.conf` |
+| RPC: 3 → 7 | bridge_rpc collector 가 list 기반이라 자동 확장. quorum 임계 (`< 4`) 는 R-005 미확정 — 가동 첫 vote 시점 실측 | `quickstart.md QS-2.1m` |
+| 로그량 ~10× | logtail offset 기반 incremental read 라 자동 흡수. MemoryMax 200M → 400M drop-in. collection_duration_p95 가 SC-003 (< 1s) 안에 들어가는지 1h/6h/24h 측정 | `scripts/mainnet_burst_check.sh`, MemoryMax in drop-in |
+| critical 6 룰 첫 발화 | PagerDuty dry-run 절차로 testalrt 채널 우회 검증 | `quickstart.md QS-2.1p` |
+
+**Rationale**: R-019 (코드 변경) 와 다르게 R-019b 는 모두 **환경 변수 / unit drop-in / 운영 절차** 로 해결 가능 — 코드를 mainnet/testnet 분기로 만들면 복잡성 증가 + Constitution III (의존성 최소화) 위반.
+
+**Alternatives considered**:
+- 코드에 `network` 분기 + auto-detect (homedir / RPC count) → 거부. unit override + env 가 정답.
+- mainnet 전용 binary (build tag) → 거부. 단일 binary 가 환경 차이 모두 흡수해야 운영 단순.
 
 ---

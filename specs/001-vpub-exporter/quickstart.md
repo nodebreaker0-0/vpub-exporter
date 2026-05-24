@@ -88,11 +88,65 @@ echo "restored at $(date -u)"
 
 ### QS-2.1 — RPC Quorum 위태 (US2-1)
 
-**절차**: testnet 머신에서 `iptables` 로 RPC 호스트 중 4개 차단 (메인넷 모의)
+**절차**: testnet 머신에서 `iptables` 로 RPC 호스트 중 일부 차단 (testnet RPC max=3 이라 2 차단 시 1만 살아남음 → `< 2` 매처 발화. mainnet `< 4` 매처는 mainnet 가동 후 검증).
 
-**기대**: 5분 후 `VpubBridgeRpcMajorityDown` (high)
+**기대**: 5분 후 `VpubBridgeRpcMajorityDownTestnet` (high) — testnet 복제 룰
 
 **합격**: 알람 발화 + 차단 해제 후 5분 내 resolve.
+
+### QS-2.1m — R-005 mainnet quorum 정확값 확정 (mainnet 가동 직후)
+
+**왜 필요한가**: mainnet 7 RPC quorum 임계 `< 4` 는 운영자 가설. HF 가 실제 vote_majority 로 요구하는 minimum live RPC count 가 가설과 다를 수 있음 — 가동 첫 vote 시도 시 실측 필요.
+
+**절차**:
+1. 첫 vote 시점 직전부터 `vpub_bridge_rpc_up` 의 7 시리즈 상태 캡처:
+   ```bash
+   curl -s localhost:8002/metrics | grep "^vpub_bridge_rpc_up"
+   # 7개 시리즈 모두 1 이어야 정상
+   ```
+2. 첫 vote 성공 후 publisher 로그에서 quorum 관련 메시지 확인:
+   ```bash
+   sudo grep -E "votes_sent|quorum|insufficient.*rpc" /home/ubuntu/v-publisher/log/$(date -u +%Y%m%d) | head -20
+   ```
+3. RPC 를 한 번에 하나씩 차단해 가며 vote 가 계속 성공하는 최소 N 확인:
+   - 차단 절차: `sudo iptables -A OUTPUT -d <rpc-host> -j DROP` (해제 `-D`)
+   - 각 단계 후 30분 관찰 → 다음 vote 가 ok 인지 확인
+   - N+1 번째 차단 시 vote 실패가 처음 발생 → quorum = N
+4. 룰 정정 (필요 시):
+   ```yaml
+   # monitoring/rules/hyperliquid_vpub_rule_tier1.yaml
+   - alert: VpubBridgeRpcMajorityDown
+     expr: count(vpub_bridge_rpc_up{network!='testnet',disable_alarm!='true'} == 1) < <N>
+   ```
+5. research.md R-005 에 확정값 + 검증 로그 백포트.
+
+**위험**: 실제 RPC 차단 시 bridge voter 의 quorum 깨질 수 있음 → vote 실패 = 운영 데미지 가능. **vote 가 없는 quiet 시간대** (입금 트래픽 적은 시간) 에 실행 권장. 가능하면 dry-run 으로 prometheus `vpub_bridge_rpc_up == 1` count 만 만들어 알람 발화 시점만 확인.
+
+### QS-2.1p — PagerDuty dry-run (mainnet 가동 전)
+
+**왜 필요한가**: critical 6 룰 (`VpubServiceDown`, `VpubChildMissing`, `VpubLogStaleLong`, `VpubBridgeStaleVoteLong`, `VpubOracleStaleVoteLong` ×2 chain) 은 mainnet only. 가동 직후 셋업이 잘못되면 운영자 전원이 PagerDuty 호출. dry-run 필요.
+
+**절차**:
+1. monitoring 레포의 alertmanager.toml 에서 임시 라우팅 추가:
+   ```toml
+   [[slacks]]
+   enabled = true
+   targetAlertLevels = ["critical"]
+   filters = ['network=mainnet', 'chain=hyperliquid']
+   resendDuration = "1m"
+   channel = "C08M18L34BD"  # ddoa-testalrt — PagerDuty 대신
+   ```
+   기존 PagerDuty entry 는 일시 disable.
+2. mainnet 인스턴스에서 일부러 publisher 중지 30s:
+   ```bash
+   sudo systemctl stop validator-publisher
+   sleep 35
+   sudo systemctl start validator-publisher
+   ```
+3. 30s 내 `VpubServiceDown` (critical, mainnet) firing → testalrt 채널 도착 확인.
+4. 만족스러우면 alertmanager.toml 원복 (PagerDuty 활성, testalrt entry 제거), prometheus reload.
+
+**합격**: testalrt 채널에서 메시지 수신 + resolve 메시지도 1m 안에 옴.
 
 ### QS-2.2 — Bridge Stale Vote (US2-2)
 

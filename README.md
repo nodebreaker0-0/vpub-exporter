@@ -380,16 +380,37 @@ monitoring 레포의 `config/rules/hyperliquid_vpub_rule.yaml` 로 배포되는 
 
 ### Mainnet 가동 체크리스트
 
-HF mainnet 가동 시점에 한 번에 해야 할 것 (R-006 announce 이후):
+R-019b (2026-05-24 사용자 보고) — mainnet 환경 차이 3건은 모두 **배포 산출물 / 환경변수 / 운영 절차** 로 흡수. 코드 변경 X.
+
+**준비 (HF mainnet binary 가동 직전, R-006 announce 이후)**:
 
 1. `env/vpub-exporter.env.mainnet.example` 복사 → `/etc/vpub-exporter.env` 작성. `/home/ubuntu/v-publisher` 경로 + 7 Arbitrum RPC + Slack token / channel 채우기
-2. `monitoring/agents/Main_hyperliquid_VPUB_apn1.toml` 의 `<MAINNET_IP>` 치환 → monitoring 레포 PR
-3. linux/amd64 바이너리 install (`/home/admin/vpub-exporter/bin/...` 또는 `/home/ubuntu/...`)
-4. `sudo systemctl enable --now vpub-exporter`
-5. `curl localhost:8002/metrics | grep "^vpub_"` 으로 노출 확인 — 특히 `vpub_binary_local_mtime_unix{component=...}` 4 시리즈 + `vpub_binary_remote_check_ok{component="visor"} == 1`
-6. monitoring 레포의 prometheus 가 새 instance 를 scrape 하는지 (`curl monitor.bharvest.io:9090/api/v1/targets`) 확인
-7. critical 룰 6건이 mainnet 인스턴스에서 발화 가능한 상태인지 alertmanager 점검 (PagerDuty 라우팅 1회 testalrt 로 dry-run 추천)
-8. R-005 mainnet RPC quorum 임계 (현재 `< 4` 가설) 실측 후 정정
+2. systemd drop-in 적용 (ubuntu user / MemoryMax 400M):
+   ```bash
+   sudo install -D -m 0644 systemd/mainnet.conf /etc/systemd/system/vpub-exporter.service.d/mainnet.conf
+   sudo systemctl daemon-reload
+   ```
+3. `monitoring/agents/Main_hyperliquid_VPUB_apn1.toml` 의 `<MAINNET_IP>` 치환 → monitoring 레포 PR
+4. linux/amd64 binary install `/home/ubuntu/vpub-exporter/bin/vpub-exporter`
+5. **PagerDuty dry-run** (`quickstart.md QS-2.1p`) — testalrt 채널로 라우팅 일시 전환 → `systemctl stop validator-publisher` 30s → `VpubServiceDown` (critical) testalrt 에 firing 확인 → alertmanager 원복
+
+**가동 직후**:
+
+6. `sudo systemctl enable --now vpub-exporter` → `curl localhost:8002/metrics | grep "^vpub_"` 으로 모든 prefix 노출 확인
+7. `vpub_binary_local_mtime_unix{component=...}` 4 시리즈 + `vpub_binary_remote_check_ok{component="visor"} == 1` 확인
+8. `vpub_bridge_rpc_up == 1` 시리즈 수 = 7 확인 (`curl localhost:8002/metrics | grep '^vpub_bridge_rpc_up'`)
+9. monitoring 레포의 prometheus 가 새 instance scrape (`curl monitor.bharvest.io:9090/api/v1/targets`) → up
+
+**가동 첫 24h 부하 체크포인트** (`scripts/mainnet_burst_check.sh`):
+
+10. **T+1h**: `bash scripts/mainnet_burst_check.sh` — 모든 임계 그린이어야 합격. 실패 시 stop + 진단.
+11. **T+6h**: 재실행 — collection_duration p95 < 1s (SC-003) 확정
+12. **T+24h**: daily 로그 rotation 한 사이클 후 RSS drift 없는지 확인 (메모리 누수 검출)
+
+**가동 첫 vote 후** (`quickstart.md QS-2.1m`):
+
+13. R-005 mainnet RPC quorum 정확값 실측 — `< 4` 가설 검증. 다르면 룰 정정 PR
+14. SC-007 평가 시작 — 1주일 후 `scripts/sc007_eval.sh` 로 false-positive 평가
 
 ### A. Tier 0 — 프로세스 / 로그
 

@@ -124,15 +124,23 @@ func run() error {
 		}
 	}
 
-	// Tier 2 (Phase 5 / US3) — binary upgrade tracking.
-	// Local stat is cheap (60s). Remote HEAD is 1m per 사용자 결정 — old 10m
-	// took 41분 to detect, 1m + expr>60 + for 1m = ~3분 detection budget.
-	if cfg.BinaryPath != "" || cfg.HasBinaryRemote() {
-		bc := vpubcoll.NewBinaryCollector(reg, binary.NewHTTPProbe(), cfg.BinaryPath, cfg.BinaryURL)
+	// Tier 2 (Phase 5+6 / US3) — per-component binary tracking (R-019).
+	// Local stat is cheap (60s) for all 4 components. Remote HEAD is 1m for
+	// visor only — child binaries are tracked via visor's "downloading new
+	// binary" log line (DownloadLogsCollector) since visor self-polls
+	// /<child>/active.
+	if len(cfg.BinaryTargets) > 0 {
+		bc := vpubcoll.NewBinaryCollector(reg, binary.NewHTTPProbe(), cfg.BinaryTargets, cfg.BinaryURL)
 		go bc.StartLocal(ctx, exMetrics, 60*time.Second)
 		if cfg.HasBinaryRemote() {
 			go bc.StartRemote(ctx, exMetrics, 60*time.Second)
 		}
+	}
+	// Tier 2 — child download log tail (R-019 / FR-013a).
+	// Detects visor's maybe_download stalls: download_started_unix vs local mtime.
+	if cfg.VisorLogDir != "" {
+		dlc := vpubcoll.NewDownloadLogsCollector(reg, cfg.VisorLogDir, tailer)
+		go dlc.Start(ctx, exMetrics)
 	}
 
 	mux := http.NewServeMux()

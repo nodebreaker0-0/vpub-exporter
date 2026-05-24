@@ -30,8 +30,13 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.ComponentLogDir != DefaultComponentLogDir {
 		t.Errorf("ComponentLogDir = %q, want %q", cfg.ComponentLogDir, DefaultComponentLogDir)
 	}
-	if cfg.BinaryPath != DefaultBinaryPath {
-		t.Errorf("BinaryPath = %q", cfg.BinaryPath)
+	if got := cfg.BinaryTargets[ComponentVisor]; got != DefaultBinaryPath {
+		t.Errorf("BinaryTargets[visor] = %q, want %q", got, DefaultBinaryPath)
+	}
+	for _, name := range []ComponentName{ComponentVisor, ComponentBridgeVoter, ComponentOutcomeVoter, ComponentReferenceOraclePublish} {
+		if cfg.BinaryTargets[name] == "" {
+			t.Errorf("BinaryTargets[%s] missing default", name)
+		}
 	}
 	if cfg.HasBridgeRPC() {
 		t.Errorf("HasBridgeRPC should be false on defaults")
@@ -87,14 +92,55 @@ func TestLoad_EnvOverride(t *testing.T) {
 	if cfg.ComponentLogDir != "/var/tmp/validator-publisher" {
 		t.Errorf("ComponentLogDir = %q", cfg.ComponentLogDir)
 	}
-	if cfg.BinaryPath != "/usr/local/bin/visor" {
-		t.Errorf("BinaryPath = %q", cfg.BinaryPath)
+	// Legacy VPUB_BINARY_PATH still folds into visor target (backward compat).
+	if got := cfg.BinaryTargets[ComponentVisor]; got != "/usr/local/bin/visor" {
+		t.Errorf("BinaryTargets[visor] = %q, want legacy override", got)
 	}
 	if !cfg.HasBinaryRemote() {
 		t.Errorf("HasBinaryRemote should be true")
 	}
 	if !cfg.HasSlack() {
 		t.Errorf("HasSlack should be true")
+	}
+}
+
+func TestLoad_BinaryTargetsEnv(t *testing.T) {
+	// R-019: VPUB_BINARY_TARGETS overrides all 4 component paths in one shot.
+	env := map[string]string{
+		"VPUB_BINARY_TARGETS": "visor=/m/visor, bridge-voter=/m/bv, outcome-voter=/m/ov, reference-oracle-publisher=/m/rop",
+	}
+	cfg, err := Load(nil, envFromMap(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := map[ComponentName]string{
+		ComponentVisor:                  "/m/visor",
+		ComponentBridgeVoter:            "/m/bv",
+		ComponentOutcomeVoter:           "/m/ov",
+		ComponentReferenceOraclePublish: "/m/rop",
+	}
+	for n, p := range want {
+		if got := cfg.BinaryTargets[n]; got != p {
+			t.Errorf("BinaryTargets[%s] = %q, want %q", n, got, p)
+		}
+	}
+}
+
+func TestLoad_BinaryTargetsRejectsUnknownComponent(t *testing.T) {
+	// Cardinality guard: unknown component names must be silently dropped
+	// (not added to BinaryTargets). Defaults remain intact.
+	env := map[string]string{
+		"VPUB_BINARY_TARGETS": "frobnicator=/no/such, visor=/v",
+	}
+	cfg, err := Load(nil, envFromMap(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := cfg.BinaryTargets["frobnicator"]; ok {
+		t.Errorf("unknown component should be dropped, got %q", cfg.BinaryTargets["frobnicator"])
+	}
+	if cfg.BinaryTargets[ComponentVisor] != "/v" {
+		t.Errorf("known component should still apply, got %q", cfg.BinaryTargets[ComponentVisor])
 	}
 }
 

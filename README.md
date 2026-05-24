@@ -155,7 +155,8 @@ curl -s localhost:8002/metrics | grep -E '^vpub_(service_up|child_count|componen
 |---|---|---|
 | `VPUB_VISOR_LOG_DIR` | visor 자체 로그 디렉토리 (service 파일의 `--log-dir` 값) | `/home/admin/v-publisher/log` (testnet) / `/home/ubuntu/v-publisher/log` (mainnet) |
 | `VPUB_COMPONENT_LOG_DIR` | 3 child 컴포넌트 로그 루트 (visor default — `--log-dir` 영향 X) | `/tmp/validator-publisher` (양쪽 동일, system /tmp) |
-| `VPUB_BINARY_PATH` | publisher 바이너리 (Tier 2 upgrade tracking) | `/home/admin/v-publisher/visor` |
+| `VPUB_BINARY_TARGETS` | per-component binary 경로 (R-019). `<component>=<path>,<component>=<path>` 형식 | `visor=/home/admin/v-publisher/visor,bridge-voter=/home/admin/v-publisher/bridge-voter,outcome-voter=/home/admin/v-publisher/outcome-voter,reference-oracle-publisher=/home/admin/v-publisher/reference-oracle-publisher` |
+| `VPUB_BINARY_PATH` *(legacy)* | visor binary 만 (backward compat — `VPUB_BINARY_TARGETS[visor]` 로 fold) | `/home/admin/v-publisher/visor` |
 | `VPUB_BRIDGE_STATE_PATH` | bridge-voter state JSON (read-only) | `/home/admin/v-publisher/bridge-voter-testnet-state.json` |
 | `VPUB_BRIDGE_RPC_NAMES` | Arbitrum RPC provider 이름 콤마 구분 (lowercase) | `alchemy,quicknode,infura` (testnet 3) / 7개 (mainnet) |
 | `VPUB_RPC_<NAME>_URL` | 각 provider URL (시크릿) | `https://arb-sepolia.g.alchemy.com/v2/...` |
@@ -316,18 +317,39 @@ prefix: 모든 메트릭은 **`vpub_*`**.
 | **코드** | [`internal/collectors/slack_health.go`](internal/collectors/slack_health.go) |
 | **운영 의미** | **0 이면 publisher 가 보내는 모든 슬랙 알람이 누락 중일 수 있음** — 가장 무서운 silent failure. |
 
-### C. Tier 2 — 업그레이드 트래킹
+### C. Tier 2 — per-component 업그레이드 트래킹 (R-019)
 
-#### `vpub_binary_local_mtime_unix` / `vpub_binary_remote_mtime_unix` / `vpub_binary_remote_check_ok`
+publisher 는 4 binary 로 구성: **visor** (spawn manager, 사람이 install) + **bridge-voter / outcome-voter / reference-oracle-publisher** (visor 가 `/<child>/active` polling 으로 자동 download). visor 는 HEAD 추적, child × 3 은 visor 로그의 download 라인 시각 추적.
+
+#### `vpub_binary_local_mtime_unix{component=...}`
 
 | 항목 | 값 |
 |---|---|
-| **타입** | Gauge (unix sec) × 2 / Gauge (0/1) |
-| **무엇** | 로컬 publisher 바이너리 mtime, HF 가 게시한 remote 바이너리 `Last-Modified`, HEAD 호출 성공 여부 |
-| **어떻게** | `os.Stat($VPUB_BINARY_PATH).ModTime()` + `http.Head($VPUB_BINARY_URL)` `Last-Modified` 헤더 파싱 (timeout 10s) |
-| **주기** | 60초 (local) / 10분 (remote) |
+| **타입** | GaugeVec (unix sec) |
+| **라벨** | `component=visor\|bridge-voter\|outcome-voter\|reference-oracle-publisher` |
+| **어떻게** | `os.Stat($VPUB_BINARY_TARGETS[component]).ModTime()` per component (60s) |
+| **코드** | [`internal/collectors/binary.go`](internal/collectors/binary.go) |
+| **운영 의미** | 각 binary 가 마지막으로 install/download 된 시각. |
+
+#### `vpub_binary_remote_mtime_unix{component="visor"}` / `vpub_binary_remote_check_ok{component="visor"}`
+
+| 항목 | 값 |
+|---|---|
+| **타입** | GaugeVec (unix sec) / GaugeVec (0/1) |
+| **라벨** | `component="visor"` 만 (child 는 HEAD 추적 X — R-019) |
+| **어떻게** | `http.Head($VPUB_BINARY_URL)` `Last-Modified` 헤더 파싱 (1m, timeout 10s) |
 | **코드** | [`internal/collectors/binary.go`](internal/collectors/binary.go), [`internal/binary/binary_http.go`](internal/binary/binary_http.go) |
-| **운영 의미** | remote > local + 1h = HF 신규 announce → 변경사항 검토 후 **수동** 업그레이드. |
+| **운영 의미** | remote > local + 60s = HF 가 visor publish → **사람이 install 해야** 함. |
+
+#### `vpub_binary_download_started_unix{component=<child>}`
+
+| 항목 | 값 |
+|---|---|
+| **타입** | GaugeVec (unix sec) |
+| **라벨** | `component=bridge-voter\|outcome-voter\|reference-oracle-publisher` (visor 제외) |
+| **어떻게** | visor 로그의 `INFO visor: downloading new binary self.binary_name="<child>"` 라인 매치 시점 (logtail event-driven) |
+| **코드** | [`internal/collectors/download_logs.go`](internal/collectors/download_logs.go) |
+| **운영 의미** | visor 가 child 의 download 를 **시작한** 시각. 정상이면 1~3초 후 child local_mtime 이 이 시각보다 신규가 됨. 60s+ 지나도 mtime 미갱신 = visor 의 maybe_download 가 stuck (실패). |
 
 ### D. Exporter self
 
@@ -467,20 +489,36 @@ monitoring 레포의 `config/rules/hyperliquid_vpub_rule.yaml` 로 배포되는 
   3. 새 토큰 발급 → `/etc/vpub-exporter.env` 갱신 → `sudo systemctl restart vpub-exporter`
   4. > **이거 0 이면 publisher 자체 슬랙 알람도 다 누락**. 가장 위험.
 
-### C. Tier 2 — 업그레이드
+### C. Tier 2 — per-component 업그레이드 (R-019)
 
-#### `VpubBinaryUpdateAvailable` (medium)
+#### `VpubVisorBinaryUpdateAvailable` (medium)
 
-- **expr**: `vpub_binary_remote_mtime_unix - vpub_binary_local_mtime_unix > 3600` for 30m
-- **trigger**: remote (HF announce) 가 local 보다 1h 이상 신규
+- **expr**: `(vpub_binary_remote_mtime_unix{component="visor"} - vpub_binary_local_mtime_unix{component="visor"}) > 60` for 1m
+- **trigger**: HF 가 `/validator-publisher/visor` 에 새 binary publish → 사람이 install 안 함
+- **메시지**: `humanizeTimestamp` 로 New Last-Modified / local mtime 절대 시각 노출 (hlmon updatemon 스타일)
 - **확인**:
-  1. HF Telegram / Discord 의 announce 확인 (changelog)
-  2. 변경사항 평가 후 수동 업그레이드 SOP 진행
+  1. HF Telegram / Discord announce 확인 (changelog, breaking change)
+  2. sha256 / 서명 검증
+  3. install → `sudo systemctl restart validator-publisher`
+  4. local mtime 갱신 → expr 음수 → **자동 resolve**
+
+#### `VpubChildBinaryDownloadFailed` (high)
+
+- **expr**: `(vpub_binary_download_started_unix - vpub_binary_local_mtime_unix) > 60` for 1m
+- **trigger**: visor 가 `INFO visor: downloading new binary self.binary_name="<child>"` 로그를 찍었는데 60s+ 동안 child file mtime 미갱신 (visor 의 `maybe_download` 가 stuck — retry budget 초과)
+- **확인**:
+  1. visor 로그에서 `WARN visor: maybe_download failed, retrying error=...` 빈도 확인
+     ```bash
+     sudo grep "maybe_download failed" /home/admin/v-publisher/log/$(date -u +%Y%m%d) | tail -20
+     ```
+  2. 네트워크 / DNS / `binaries.hyperliquid-testnet.xyz` 도달성
+  3. disk full / 권한 (visor 가 child file write 가능해야)
+  4. download 성공 후 mtime 갱신 → expr 음수 → **자동 resolve**
 
 #### `VpubBinaryRemoteCheckFail` (low)
 
-- **expr**: `vpub_binary_remote_check_ok == 0` for 1h
-- **trigger**: 1h 동안 binary URL HEAD 실패
+- **expr**: `vpub_binary_remote_check_ok{component="visor"} == 0` for 10m
+- **trigger**: 10m 동안 visor URL HEAD 실패
 - **확인**: URL 변경됐는지 확인 (HF 가 path 옮겼을 수 있음) → env 갱신
 
 ---

@@ -283,28 +283,57 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
 
 ---
 
-## 3. Tier 2 룰 (US3) — 2 건
+## 3. Tier 2 룰 (US3) — 3 건 (R-019 적용)
 
 > **임계 단축 (사용자 결정 2026-05-23)**: 기존 detection 최대 41분 (HEAD 10m
 > + expr >3600s + for 30m) → 새 budget 약 3분 (HEAD 1m + expr >60s + for 1m).
 > trade-off: 매분 HEAD ≈ 60 req/h — 무시 가능. HF announce 즉시 운영자 알림.
+>
+> **R-019 (2026-05-24)**: visor URL 단일 추적 → per-component 4종 추적으로 확장.
+> visor (manual install) 와 child × 3 (visor 자동 download) 의 의미가 정반대라
+> 알람 분리: VpubVisorBinaryUpdateAvailable + VpubChildBinaryDownloadFailed.
+> 둘 다 정상화 (사람 install / visor 가 download 성공) 시 자동 resolve.
+> 메시지 가독성: `humanizeTimestamp` 로 절대 시각 노출 (hlmon updatemon 스타일).
 
 ```yaml
-- alert: VpubBinaryUpdateAvailable
-  expr: (vpub_binary_remote_mtime_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 60
+- alert: VpubVisorBinaryUpdateAvailable
+  expr: (vpub_binary_remote_mtime_unix{component='visor',disable_alarm!='true'}
+       - vpub_binary_local_mtime_unix{component='visor'}) > 60
   for: 1m
   labels:
-    alertEvent: "vpub:binary:update"
+    alertEvent: "vpub:binary:visor:update"
     alertLevel: "medium"
     instance: "{{ $labels.instance }}"
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub: 새 publisher 바이너리 announced (remote +{{ $value }}s)"
-    description: "{{ $labels.instance }} remote Last-Modified 가 local mtime 보다 1분+ 신규 — HF announce. 변경사항 검토 후 수동 업그레이드."
+    summary: ":red_circle: vpub: visor binary 업데이트 announced"
+    description: |
+      {{ $labels.network }} visor binary at https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor has been updated.
+      New Last-Modified: {{ with printf "vpub_binary_remote_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+      local mtime:      {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+      → 검토 후 수동 업그레이드. install 하면 mtime 갱신 → 자동 resolve.
+
+- alert: VpubChildBinaryDownloadFailed
+  expr: (vpub_binary_download_started_unix{disable_alarm!='true'}
+       - vpub_binary_local_mtime_unix) > 60
+  for: 1m
+  labels:
+    alertEvent: "vpub:binary:child:download_failed"
+    alertLevel: "high"
+    instance: "{{ $labels.instance }}"
+    target: "{{ $labels.target }}"
+    chain: "hyperliquid"
+  annotations:
+    summary: ":warning: vpub: {{ $labels.component }} 다운로드 실패 (60s+ mtime 미갱신)"
+    description: |
+      {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 60s+ 동안 local mtime 미갱신.
+      download log ts: {{ with printf "vpub_binary_download_started_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+      local mtime:     {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+      visor 로그 / 네트워크 / disk 점검. download 성공하면 mtime 갱신 → 자동 resolve.
 
 - alert: VpubBinaryRemoteCheckFail
-  expr: vpub_binary_remote_check_ok{disable_alarm!='true'} == 0
+  expr: vpub_binary_remote_check_ok{component='visor',disable_alarm!='true'} == 0
   for: 10m
   labels:
     alertEvent: "vpub:binary:check_fail"
@@ -313,8 +342,8 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     target: "{{ $labels.target }}"
     chain: "hyperliquid"
   annotations:
-    summary: "vpub: binary URL HEAD 10m+ 실패"
-    description: "{{ $labels.instance }} 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검."
+    summary: "vpub: visor binary URL HEAD 10m+ 실패"
+    description: "{{ $labels.instance }} visor 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검."
 ```
 
 ---
@@ -335,15 +364,18 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
 | US2-4 (oracle 2h) | VpubOracleStaleVote |
 | US2-5 (outcome > 5 / 30m) | VpubOutcomePendingLong |
 | US2-6 (slack auth.test 5m fail) | VpubSlackTokenInvalid |
-| US3-1 (remote mtime > local + 1h) | VpubBinaryUpdateAvailable |
-| US3-2 (HEAD 1h fail) | VpubBinaryRemoteCheckFail |
+| US3-1a (visor remote mtime > local + 60s) | VpubVisorBinaryUpdateAvailable |
+| US3-1b (child download log > local mtime + 60s) | VpubChildBinaryDownloadFailed |
+| US3-2 (HEAD 10m fail) | VpubBinaryRemoteCheckFail |
 
-## 5. alertLevel 사용 통계 (총 15 룰)
+## 5. alertLevel 사용 통계
 
-- `critical` (PagerDuty + ddoa-critical): 5 룰
-- `high` (ddoa-high): 6 룰
-- `medium` (ddoa-low): 3 룰
-- `low` (ddoa-low): 1 룰
+R-018 (mainnet/testnet 분기) + R-019 (Tier 2 per-component) 적용 후. 정확한 룰 수는 통합본 (`monitoring/config/rules/hyperliquid_vpub_rule.yaml`) 의 grep 카운트로 확정.
+
+- `critical` (PagerDuty + ddoa-critical): mainnet 한정 6 룰
+- `high` (ddoa-high): testnet 복제 critical 6 + Tier 1 some + VpubChildBinaryDownloadFailed
+- `medium` (ddoa-low): VpubVisorBinaryUpdateAvailable 외
+- `low` (ddoa-low): VpubBinaryRemoteCheckFail 외
 - `disk`: 0 — node-exporter / 기존 룰이 커버
 
 ## 6. 변경 절차

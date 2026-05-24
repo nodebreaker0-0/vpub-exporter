@@ -5,6 +5,7 @@
 # Network split: critical alerts + RPC quorum 은 testnet/mainnet 분기 (testnet RPC max=3, mainnet=7).
 # VpubBridgeStaleVote / Long 도 mainnet only.
 # VpubLogStale/Long 은 component!="visor" (자체 로그 빈도 낮음).
+# Tier 2 R-019: per-component (visor manual install + child × 3 자동 download fail).
 name: hyperliquid_vpub_rule
 rules:
   - alert: VpubServiceDown
@@ -18,8 +19,7 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: validator-publisher.service down'
-      description: '[mainnet] {{ $labels.instance }} validator-publisher.service 가
-        1분 이상 inactive — bridge/oracle vote 누락 위험.'
+      description: '[mainnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubServiceDownTestnet
     expr: vpub_service_up{disable_alarm!='true',network="testnet"} == 0
     for: 1m
@@ -31,8 +31,7 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: validator-publisher.service down'
-      description: '[testnet] {{ $labels.instance }} validator-publisher.service 가
-        1분 이상 inactive — bridge/oracle vote 누락 위험.'
+      description: '[testnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubChildMissing
     expr: vpub_child_count{disable_alarm!='true',network!="testnet"} < 3
     for: 30s
@@ -44,8 +43,7 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
-      description: '[mainnet] {{ $labels.instance }} visor child 수 = {{ $value }}
-        (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
+      description: '[mainnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubChildMissingTestnet
     expr: vpub_child_count{disable_alarm!='true',network="testnet"} < 3
     for: 30s
@@ -57,11 +55,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
-      description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }}
-        (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
+      description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubLogStale
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"})
-      > 300
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
     for: 2m
     labels:
       alertEvent: vpub:log:stale
@@ -71,11 +67,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 5분+ 멈춤
-      description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상
-        갱신 없음 — hang 가능.'
+      description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
   - alert: VpubLogStaleLong
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"})
-      > 1800
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:log:stale_long
@@ -85,11 +79,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
-      description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 30분+
-        hang — 즉시 점검.'
+      description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
   - alert: VpubLogStaleLongTestnet
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!="visor"})
-      > 1800
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!="visor"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:log:stale_long:testnet
@@ -99,11 +91,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
-      description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+
-        hang — 즉시 점검.'
+      description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
   - alert: VpubBridgeRpcMajorityDown
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"})
-      < 4
+    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"}) < 4
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum
@@ -113,11 +103,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: RPC quorum 위태 ({{ $value }}/7)'
-      description: '[mainnet] 메인넷 RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후
-        정정)'
+      description: '[mainnet] 메인넷 RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)'
   - alert: VpubBridgeRpcMajorityDownTestnet
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"})
-      < 2
+    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"}) < 2
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum:testnet
@@ -139,11 +127,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: RPC {{ $labels.name }} down'
-      description: '{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분+
-        down'
+      description: '{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분+ down'
   - alert: VpubBridgeRpcDisagreement
-    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[15m])
-      > 5
+    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[15m]) > 5
     for: 2m
     labels:
       alertEvent: vpub:bridge:disagreement
@@ -155,8 +141,7 @@ rules:
       summary: 'vpub bridge: RPC disagreement 빈발'
       description: 15분 내 RPC 합의 실패 {{ $value }} 건 — 잘못된 vote 위험
   - alert: VpubBridgeStaleVote
-    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"})
-      > 3600
+    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 3600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote
@@ -168,8 +153,7 @@ rules:
       summary: 'vpub bridge: 1h+ 성공 vote 없음'
       description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과'
   - alert: VpubBridgeStaleVoteLong
-    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"})
-      > 21600
+    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 21600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote_long
@@ -179,11 +163,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: 6h+ 성공 vote 없음'
-      description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 —
-        비정상'
+      description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상'
   - alert: VpubBridgeStaleVoteLongTestnet
-    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network="testnet"})
-      > 21600
+    expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network="testnet"}) > 21600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote_long:testnet
@@ -193,12 +175,14 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: 6h+ 성공 vote 없음'
-      description: '[testnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 —
-        비정상'
+      description: '[testnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상'
   - alert: VpubBridgeAllFail
-    expr: "(\n  increase(vpub_bridge_vote_total{status=\"ok\",disable_alarm!='true'}[1h])\
-      \ == 0\n  and\n  increase(vpub_bridge_vote_total{status=\"fail\",disable_alarm!='true'}[1h])\
-      \ > 0\n)\n"
+    expr: |
+      (
+        increase(vpub_bridge_vote_total{status="ok",disable_alarm!='true'}[1h]) == 0
+        and
+        increase(vpub_bridge_vote_total{status="fail",disable_alarm!='true'}[1h]) > 0
+      )
     for: 5m
     labels:
       alertEvent: vpub:bridge:all_fail
@@ -220,11 +204,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub oracle: 5m+ 성공 vote 없음'
-      description: '{{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상
-        평균 4.3s)'
+      description: '{{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)'
   - alert: VpubOracleStaleVoteLong
-    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network!="testnet"})
-      > 1800
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:oracle:stale_vote_long
@@ -234,11 +216,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub oracle: 30m+ 성공 vote 없음'
-      description: '[mainnet] {{ $labels.instance }} reference oracle 사실상 정지 — oracle
-        미참여 손실'
+      description: '[mainnet] {{ $labels.instance }} reference oracle 사실상 정지 — oracle 미참여 손실'
   - alert: VpubOracleStaleVoteLongTestnet
-    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network="testnet"})
-      > 1800
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network="testnet"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:oracle:stale_vote_long:testnet
@@ -248,11 +228,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub oracle: 30m+ 성공 vote 없음'
-      description: '[testnet] {{ $labels.instance }} reference oracle 사실상 정지 — oracle
-        미참여 손실'
+      description: '[testnet] {{ $labels.instance }} reference oracle 사실상 정지 — oracle 미참여 손실'
   - alert: VpubBridgeStateStuck
-    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true'}[5m]) ==
-      0
+    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true'}[5m]) == 0
     for: 2m
     labels:
       alertEvent: vpub:bridge:state_stuck
@@ -262,11 +240,9 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: state 진행 멈춤 (5m)'
-      description: '{{ $labels.instance }} bridge-voter-state.json last_scanned_block
-        5분 이상 변화 없음 — Arbitrum 스캔 정지'
+      description: '{{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — Arbitrum 스캔 정지'
   - alert: VpubBridgeRpcAuthError
-    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true'}[10m])
-      > 5
+    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true'}[10m]) > 5
     for: 1m
     labels:
       alertEvent: vpub:bridge:rpc_auth_error
@@ -313,22 +289,40 @@ rules:
     annotations:
       summary: 'vpub: Slack token 만료 / API down'
       description: '[testnet] publisher 가 보내는 모든 슬랙 알람이 누락 중일 수 있음 (auth.test fail)'
-  - alert: VpubBinaryUpdateAvailable
-    expr: (vpub_binary_remote_mtime_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix)
-      > 60
+  - alert: VpubVisorBinaryUpdateAvailable
+    expr: (vpub_binary_remote_mtime_unix{component='visor',disable_alarm!='true'} - vpub_binary_local_mtime_unix{component='visor'}) > 60
     for: 1m
     labels:
-      alertEvent: vpub:binary:update
+      alertEvent: vpub:binary:visor:update
       alertLevel: medium
       instance: '{{ $labels.instance }}'
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: 'vpub: 새 publisher 바이너리 announced (remote +{{ $value }}s)'
-      description: '{{ $labels.instance }} remote Last-Modified 가 local mtime 보다 1분+
-        신규 — HF announce. 변경사항 검토 후 수동 업그레이드.'
+      summary: ':red_circle: vpub: visor binary 업데이트 announced'
+      description: |
+        {{ $labels.network }} visor binary at https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor has been updated.
+        New Last-Modified: {{ with printf "vpub_binary_remote_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        local mtime:      {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        → 검토 후 수동 업그레이드. install 하면 mtime 갱신 → 자동 resolve.
+  - alert: VpubChildBinaryDownloadFailed
+    expr: (vpub_binary_download_started_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 60
+    for: 1m
+    labels:
+      alertEvent: vpub:binary:child:download_failed
+      alertLevel: high
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: ':warning: vpub: {{ $labels.component }} 다운로드 실패 (60s+ mtime 미갱신)'
+      description: |
+        {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 60s+ 동안 local mtime 미갱신.
+        download log ts: {{ with printf "vpub_binary_download_started_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        local mtime:     {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        visor 로그 / 네트워크 / disk 점검. download 성공하면 mtime 갱신 → 자동 resolve.
   - alert: VpubBinaryRemoteCheckFail
-    expr: vpub_binary_remote_check_ok{disable_alarm!='true'} == 0
+    expr: vpub_binary_remote_check_ok{component='visor',disable_alarm!='true'} == 0
     for: 10m
     labels:
       alertEvent: vpub:binary:check_fail
@@ -337,6 +331,5 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: 'vpub: binary URL HEAD 10m+ 실패'
-      description: '{{ $labels.instance }} 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크
-        점검.'
+      summary: 'vpub: visor binary URL HEAD 10m+ 실패'
+      description: '{{ $labels.instance }} visor 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검.'

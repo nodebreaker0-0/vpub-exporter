@@ -161,27 +161,35 @@
 
 ### `vpub_binary_local_mtime_unix`
 - **Type**: Gauge (unix sec)
-- **Labels**: 없음
-- **Source**: `stat(VPUB_BINARY_PATH).mtime`
-- **Refresh**: 60s
+- **Labels**: `component=visor|bridge-voter|outcome-voter|reference-oracle-publisher` (R-019)
+- **Source**: `stat(<component path>).mtime`. `VPUB_BINARY_TARGETS` 의 `<component>=<path>` 매핑에서 component 별로 stat.
+- **Refresh**: 60s (per component, 독립 ticker)
 - **FR**: FR-012
-- **Meaning**: 로컬 publisher 바이너리 파일의 최종 수정 시각.
+- **Meaning**: 4 binary 각각의 로컬 파일 최종 수정 시각. visor 는 사람이 install 한 시각, child 는 visor 가 자동 download 후 mv 한 시각.
 
 ### `vpub_binary_remote_mtime_unix`
 - **Type**: Gauge (unix sec)
-- **Labels**: 없음
+- **Labels**: `component="visor"` 만 (R-019: child 는 HEAD 추적 X)
 - **Source**: HTTP HEAD `VPUB_BINARY_URL` → `Last-Modified` 헤더 파싱
 - **Refresh**: 1m (사용자 결정 2026-05-23 — 기존 10m 은 detection 41분, 1m 으로 ~3분 단축)
 - **FR**: FR-013
-- **Meaning**: HF 가 게시한 최신 publisher 바이너리의 수정 시각. 에러 시 직전 값 유지.
+- **Meaning**: HF 가 게시한 최신 visor 바이너리의 수정 시각. 에러 시 직전 값 유지. child 는 visor 가 자체 polling 하므로 별도 HEAD 불필요.
 
 ### `vpub_binary_remote_check_ok`
 - **Type**: Gauge (0/1)
-- **Labels**: 없음
+- **Labels**: `component="visor"` 만
 - **Source**: 위 HEAD 호출 성공 여부
 - **Refresh**: 1m (위와 동기)
 - **FR**: FR-013
-- **Meaning**: 업그레이드 트래킹 활성/비활성. 0 = URL 변경/네트워크 단절.
+- **Meaning**: visor URL HEAD 트래킹 활성/비활성. 0 = URL 변경/네트워크 단절.
+
+### `vpub_binary_download_started_unix`
+- **Type**: Gauge (unix sec)
+- **Labels**: `component=bridge-voter|outcome-voter|reference-oracle-publisher` (visor 제외 — visor 는 자기 자신을 download 하지 않음)
+- **Source**: visor 로그 (`<VisorLogDir>/YYYYMMDD`) tail. 패턴 매치 — `INFO visor: downloading new binary self.binary_name="<child>"`. 매치 시 `Match.At` 시각 (logtail collector tick now) 을 set.
+- **Refresh**: 로그 라인이 매치될 때마다 (event-driven, polling 주기 100ms)
+- **FR**: FR-013a (R-019)
+- **Meaning**: visor 가 마지막으로 해당 child binary 의 download 를 **시작한** 시각. 정상이면 직후 `local_mtime{component=<child>}` 이 이 시각보다 신규가 됨 (1~3초 지연). 60s+ 지나도 mtime 미갱신 = download 실패. download 시도가 한번도 없었으면 게이지 시리즈 자체가 부재 (룰 expr 에서 vector match 안 됨 → 자동 무발화).
 
 ---
 
@@ -235,6 +243,7 @@
 | `vpub_outcome_log_crit_total` | 009 | (Slack 1차 — 추가 룰 미적용) |
 | `vpub_outcome_slack_msg_24h` | 010 | VpubOutcomePendingLong |
 | `vpub_slack_api_ok` | 011 | VpubSlackTokenInvalid |
-| `vpub_binary_local_mtime_unix` | 012 | VpubBinaryUpdateAvailable |
-| `vpub_binary_remote_mtime_unix` | 013 | VpubBinaryUpdateAvailable, VpubBinaryRemoteCheckFail |
+| `vpub_binary_local_mtime_unix` | 012 | VpubVisorBinaryUpdateAvailable, VpubChildBinaryDownloadFailed |
+| `vpub_binary_remote_mtime_unix` | 013 | VpubVisorBinaryUpdateAvailable, VpubBinaryRemoteCheckFail |
 | `vpub_binary_remote_check_ok` | 013 | VpubBinaryRemoteCheckFail |
+| `vpub_binary_download_started_unix` | 013a | VpubChildBinaryDownloadFailed |

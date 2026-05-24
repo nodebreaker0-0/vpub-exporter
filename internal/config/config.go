@@ -47,9 +47,17 @@ type Config struct {
 	VisorLogDir     string // visor's own log file directory
 	ComponentLogDir string // root of bridge-voter / reference-oracle-publisher / outcome-voter subdirs
 
-	// Tier 2
-	BinaryPath string
-	BinaryURL  string
+	// Tier 2 — R-019: per-component binary tracking.
+	// BinaryTargets maps ComponentName → local file path. Populated from
+	// VPUB_BINARY_TARGETS env, with VPUB_BINARY_PATH (legacy) folded into
+	// ComponentVisor for backward compat. Defaults cover all 4 components
+	// under /home/admin/v-publisher/.
+	BinaryTargets map[ComponentName]string
+	// BinaryURL is the visor announce URL (sub-tracked via HTTP HEAD).
+	// child binaries are NOT HEAD-tracked — visor self-polls /<child>/active
+	// (R-019). child download success/failure is inferred from visor log
+	// `downloading new binary` line vs child file mtime.
+	BinaryURL string
 
 	// FR-012a — bridge-voter state.json path (read-only).
 	// Path pattern: <user-home>/v-publisher/bridge-voter-<chain>-state.json
@@ -94,7 +102,20 @@ const (
 	DefaultVisorLogDir     = "/home/admin/v-publisher/log" // testnet default; mainnet uses /home/ubuntu/...
 	DefaultComponentLogDir = "/tmp/validator-publisher"    // visor hard-codes this; both networks
 	DefaultBinaryPath      = "/home/admin/v-publisher/visor"
+	// DefaultBinaryRoot — child binaries colocate with visor (R-019).
+	DefaultBinaryRoot = "/home/admin/v-publisher"
 )
+
+// defaultBinaryTargets — R-019: all 4 components colocated under
+// /home/admin/v-publisher. Mainnet env overrides via VPUB_BINARY_TARGETS.
+func defaultBinaryTargets() map[ComponentName]string {
+	return map[ComponentName]string{
+		ComponentVisor:                  DefaultBinaryRoot + "/visor",
+		ComponentBridgeVoter:            DefaultBinaryRoot + "/bridge-voter",
+		ComponentOutcomeVoter:           DefaultBinaryRoot + "/outcome-voter",
+		ComponentReferenceOraclePublish: DefaultBinaryRoot + "/reference-oracle-publisher",
+	}
+}
 
 // defaultPatterns — R-003 confirmed (2026-05-23 testnet logs).
 // Patterns are bound to the real Rust module paths emitted by validator-publisher.
@@ -159,10 +180,35 @@ func Load(args []string, getenv func(string) string) (*Config, error) {
 	} else {
 		cfg.ComponentLogDir = DefaultComponentLogDir
 	}
+	// R-019: per-component binary tracking. Resolution order:
+	//   1. start with defaults (all 4 colocated under /home/admin/v-publisher)
+	//   2. legacy VPUB_BINARY_PATH overrides visor only (backward compat)
+	//   3. VPUB_BINARY_TARGETS (comma-separated component=path) wins last
+	cfg.BinaryTargets = defaultBinaryTargets()
 	if v := getenv("VPUB_BINARY_PATH"); v != "" {
-		cfg.BinaryPath = v
-	} else {
-		cfg.BinaryPath = DefaultBinaryPath
+		cfg.BinaryTargets[ComponentVisor] = v
+	}
+	if raw := getenv("VPUB_BINARY_TARGETS"); raw != "" {
+		for _, pair := range strings.Split(raw, ",") {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			kv := strings.SplitN(pair, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			name := ComponentName(strings.TrimSpace(kv[0]))
+			path := strings.TrimSpace(kv[1])
+			if name == "" || path == "" {
+				continue
+			}
+			// Only known components — silently drop unknowns (data-model invariant).
+			switch name {
+			case ComponentVisor, ComponentBridgeVoter, ComponentOutcomeVoter, ComponentReferenceOraclePublish:
+				cfg.BinaryTargets[name] = path
+			}
+		}
 	}
 	cfg.BinaryURL = getenv("VPUB_BINARY_URL")
 	cfg.BridgeStatePath = getenv("VPUB_BRIDGE_STATE_PATH")

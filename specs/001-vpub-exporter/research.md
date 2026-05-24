@@ -201,3 +201,44 @@
 - [x] **추가 발견 (R-016)** — `VpubLogStale` 에 `component!="visor"` 매처 (visor 자체 로그 빈도 낮음 — false-positive 차단)
 - [x] **추가 발견 (R-017)** — `VpubBridgeStaleVote` mainnet only (testnet 입금 0건 자연 발화 차단)
 - [x] **추가 발견 (R-018)** — critical 6 룰 mainnet 한정 + testnet `<Name>Testnet` (high) 복제 (PagerDuty noise 차단)
+- [x] **추가 발견 (R-019, 2026-05-24)** — visor 가 child binary 3개를 자체 `/<child>/active` polling 으로 자동 동기화. visor 만 추적해선 child update/실패 불검출.
+
+---
+
+## R-019 — child binary 자동 동기화 모델 (2026-05-24 운영 로그 분석)
+
+**발견**: `/home/admin/v-publisher/log/YYYYMMDD` 의 visor 로그 분석 결과, visor 는 다음 3 child 를 HF announce URL 의 별도 path 에서 **자체 polling 으로 download** 한다:
+
+- `https://binaries.hyperliquid-testnet.xyz/validator-publisher/bridge-voter/active`
+- `https://binaries.hyperliquid-testnet.xyz/validator-publisher/outcome-voter/active`
+- `https://binaries.hyperliquid-testnet.xyz/validator-publisher/reference-oracle-publisher/active`
+
+`/active` 응답 본문 = 현재 active height (예: `5`), `Last-Modified` 헤더는 active alias 의 마지막 갱신 시각. visor 는 이 height 가 증가하면 `/<child>/<height>` URL 로 binary 를 download 한 뒤 spawn 교체.
+
+```
+2026-05-22T06:00:08 INFO visor: downloading new binary
+  self.binary_name="outcome-voter"
+  binary_url=".../validator-publisher/outcome-voter/1" height=1
+2026-05-22T06:00:10 INFO visor: spawning new process
+  binary_path="/home/admin/v-publisher/outcome-voter" height=1
+```
+
+**핵심 비대칭**:
+- **visor**: HF 가 `/validator-publisher/visor` 에 publish → **사람이 wget/install 해야 적용**. 알람 발화 = "운영자가 액션할 시간".
+- **child × 3**: HF 가 `/<child>/active` 갱신 → **visor 가 자동 download + spawn 교체**. 알람 발화 = "visor 의 maybe_download 가 망가졌으니 운영자가 visor 보러갈 시간".
+
+**결정**: binary tracking 을 2-tier 로:
+1. visor (manual upgrade): 기존 `remote_mtime - local_mtime > 60` expr 유지, `component="visor"` 라벨로 식별.
+2. child × 3 (auto-sync fail): **visor 로그의 "downloading new binary" 라인 시각** (`vpub_binary_download_started_unix{component=<child>}`) 과 child file mtime 비교. `download_started_unix - local_mtime > 60` 이 1분 유지 = download 실패. 정상 시 mtime 이 거의 즉시 갱신되어 expr 음수 → 자동 resolve.
+
+**왜 HTTP HEAD 가 아닌 로그 기반인가**: child URL HEAD 가 가능하긴 하지만 (200 응답 확인됨) 이는 "HF 가 publish 했다" 만 알려주고 **visor 가 download 시도했는지/실패했는지** 의 시그널은 안 줌. 로그 기반은 "visor 가 시도했는데 mtime 안 따라옴" 을 직접 잡아 진짜 실패 모드 검출. 또한 HEAD 추가 호출 (+3 req/min) 없이 기존 logtail 인프라 재사용.
+
+**Rationale**: child auto-sync 실패는 일반적으로 maybe_download 의 retry (3s 간격) 가 충분히 견딘다. 60s 동안 mtime 미갱신이면 retry budget 초과 = 실제 실패. testnet 가동 로그 분석상 정상 download 완료까지 평균 2~3초.
+
+**Alternatives considered**:
+- 옵션 B (per-child HEAD polling, 3× /active gauge): HEAD 호출 4배 + 메트릭 4 시리즈 추가. 동일 결론 더 비싸게 도달.
+- 옵션 C (logtail count only): retry 가 정상 self-heal 도 발화 → noise. 채택 X.
+
+**임계**: download_started 후 60s 안에 mtime 미갱신 + `for: 1m` 추가 안정. 총 timeout ~120s.
+
+---

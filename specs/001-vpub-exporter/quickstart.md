@@ -128,23 +128,82 @@ echo "restored at $(date -u)"
 
 ---
 
-## QS-3 — Tier 2 / US3
+## QS-3 — Tier 2 / US3 (R-019 per-component binary tracking)
 
-### QS-3.1 — Binary Update Available (US3-1)
+### QS-3.1 — visor 업데이트 알람 (US3-1a)
 
-**절차**: 더미 HTTP 서버 (`python -m http.server`) 띄우고, 거기에서 `Last-Modified: <future>` 헤더로 응답하도록 설정 → `VPUB_BINARY_URL` 변경 → exporter 재시작
+**절차** — local visor mtime 을 절대 시각 1970 으로 만들어 remote 보다 무조건 과거가 되게:
 
-**기대**: `vpub_binary_remote_mtime_unix` > local + 3600, 30분 후 `VpubBinaryUpdateAvailable` (medium)
+```bash
+# (옵션) 원래 mtime 백업
+sudo stat -c '%y' /home/admin/v-publisher/visor | sudo tee /root/visor.mtime.bak
 
-**합격**: 알람 발화.
+# local 을 1970-01-02 로
+sudo touch -t 197001020000 /home/admin/v-publisher/visor
+sleep 130   # 60s collector tick + 1m for + alertmanager lookahead 안전 margin
 
-### QS-3.2 — Remote Check Fail (US3-2)
+# 알람 확인
+curl -s 'http://<prom>:9090/api/v1/alerts' \
+  | jq '.data.alerts[] | select(.labels.alertname=="VpubVisorBinaryUpdateAvailable")'
+```
 
-**절차**: `VPUB_BINARY_URL` 을 존재하지 않는 호스트로 변경 → exporter 재시작
+**기대**: 슬랙 메시지 (`alertLevel: medium`, testnet/mainnet 동일):
+> :red_circle: vpub: visor binary 업데이트 announced
+> testnet visor binary at https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor has been updated.
+> New Last-Modified: 2026-05-22 03:50:10 +0000 UTC
+> local mtime:      1970-01-02 00:00:00 +0000 UTC
 
-**기대**: 1시간 후 `VpubBinaryRemoteCheckFail` (low)
+**원복** → 자동 resolve:
+```bash
+sudo touch -d "$(cat /root/visor.mtime.bak)" /home/admin/v-publisher/visor
+# 60s 안에 local mtime 갱신 → expr 음수 → alertmanager resolved 발송
+```
 
-**합격**: 알람 발화.
+**합격**: (a) 알람 firing 후 (b) 원복 시 resolved 메시지.
+
+### QS-3.2 — child download 실패 알람 (US3-1b)
+
+**전제**: visor 가 살아 있고 한 번이라도 `INFO visor: downloading new binary self.binary_name="<child>"` 로그를 찍은 적이 있어야 함 (= `vpub_binary_download_started_unix{component=<child>}` 시리즈 존재).
+
+**절차** — child file mtime 을 과거로 강제. download_started 는 그대로 → expr 양수:
+
+```bash
+sudo stat -c '%y' /home/admin/v-publisher/bridge-voter | sudo tee /root/bv.mtime.bak
+sudo touch -t 197001020000 /home/admin/v-publisher/bridge-voter
+sleep 130
+
+curl -s 'http://<prom>:9090/api/v1/alerts' \
+  | jq '.data.alerts[] | select(.labels.alertname=="VpubChildBinaryDownloadFailed")'
+```
+
+**기대**: 슬랙 메시지 (`alertLevel: high`, testnet/mainnet 동일):
+> :warning: vpub: bridge-voter 다운로드 실패 (60s+ mtime 미갱신)
+> testnet visor 가 bridge-voter download 로그를 찍은 후 60s+ 동안 local mtime 미갱신.
+> download log ts: ...
+> local mtime: 1970-01-02 00:00:00 +0000 UTC
+
+**원복** → 자동 resolve:
+```bash
+sudo touch -d "$(cat /root/bv.mtime.bak)" /home/admin/v-publisher/bridge-voter
+# 또는 visor 재시작 → visor 가 자동 download → mtime 갱신 → 자동 resolve
+sudo systemctl restart validator-publisher
+```
+
+**합격**: firing 후 원복 시 resolved.
+
+### QS-3.3 — Remote Check Fail (US3-2)
+
+**절차**: `VPUB_BINARY_URL` 을 존재하지 않는 호스트로 변경 → exporter 재시작 → 10분 대기.
+
+```bash
+sudo sed -i 's|^VPUB_BINARY_URL=.*|VPUB_BINARY_URL=https://nonexistent.invalid/visor|' /etc/vpub-exporter.env
+sudo systemctl restart vpub-exporter
+sleep 700   # for 10m
+```
+
+**기대**: `VpubBinaryRemoteCheckFail` (low) 발화. `vpub_binary_remote_check_ok{component="visor"} == 0`.
+
+**원복**: env 복구 후 재시작 → 60s 안에 ok=1 → 자동 resolve.
 
 ---
 

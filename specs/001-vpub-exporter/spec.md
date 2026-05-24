@@ -92,8 +92,9 @@
 
 #### Tier 2 — 업그레이드 트래킹 (P3)
 
-- **FR-012**: System MUST publisher 바이너리 로컬 파일 mtime 을 unix sec 게이지로 노출한다.
-- **FR-013**: System MUST `VPUB_BINARY_URL` 의 HTTP HEAD `Last-Modified` 를 **1분** 주기로 폴링하고 remote mtime 게이지 + check_ok 게이지를 노출한다. (사용자 결정 2026-05-23: 기존 10분 → 1분 단축. 매분 HEAD ≈ 60 req/h, detection budget ~3분.)
+- **FR-012**: System MUST publisher 바이너리 로컬 파일 mtime 을 unix sec 게이지로 노출한다. `component` 라벨로 `visor`, `bridge-voter`, `outcome-voter`, `reference-oracle-publisher` 4종 모두 노출한다 (R-019).
+- **FR-013**: System MUST `VPUB_BINARY_URL` (visor announce URL) 의 HTTP HEAD `Last-Modified` 를 **1분** 주기로 폴링하고 `remote_mtime{component="visor"}` 게이지 + `remote_check_ok{component="visor"}` 게이지를 노출한다. (사용자 결정 2026-05-23: 기존 10분 → 1분 단축. 매분 HEAD ≈ 60 req/h, detection budget ~3분.) child 는 HEAD 추적 X (R-019: visor 가 자체 polling 으로 자동 동기화).
+- **FR-013a (R-019, 2026-05-24)**: System MUST visor 의 컴포넌트 로그 (`<VisorLogDir>/YYYYMMDD`) 를 tail 하여 `INFO visor: downloading new binary self.binary_name="<child>"` 라인의 시각을 component 별 `vpub_binary_download_started_unix{component=<child>}` 게이지에 기록한다. download 가 성공하면 child 의 local mtime 이 이 시각보다 더 신규가 되어 `download_started - local_mtime` 이 음수 → 자동 resolve. 실패 시 차이가 60s+ 유지 → 알람 발화. testnet 실측 정상 download 평균 2~3초.
 
 #### 운영 / 보안 / 통합 요구사항
 

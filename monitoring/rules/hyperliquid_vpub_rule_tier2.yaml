@@ -1,4 +1,4 @@
-# Tier 2 alert rules for vpub-exporter (US3 — binary upgrade tracking).
+# Tier 2 alert rules for vpub-exporter (US3 — per-component binary tracking).
 #
 # monitoring 레포의 parser 가 PR merge 시 `{groups: [.]}` 로 wrap 후 promtool check.
 # 따라서 이 파일은 단일 RuleGroup 노드 (name + rules:) 로 작성.
@@ -6,28 +6,66 @@
 # 사용자 결정 (2026-05-23): detection budget 단축.
 #   기존  : HEAD 10m + expr >3600 + for 30m → max 41분
 #   현재  : HEAD 1m  + expr >60   + for 1m  → max ~3분
-#   trade-off : 매분 HEAD = ~60 req/h — 무시 가능. 발견 즉시 운영자 알림 가치 >> 트래픽.
+#   trade-off : 매분 HEAD = ~60 req/h — 무시 가능.
+#
+# R-019 (2026-05-24): visor 가 child × 3 (bridge-voter / outcome-voter /
+# reference-oracle-publisher) 을 자체 `/<child>/active` polling 으로 자동
+# download 한다. 알람 의미가 정반대라 visor 와 child 룰 분리:
+#   - visor      : remote_mtime - local_mtime > 60  → 사람 install 필요
+#   - child × 3  : download_started_unix - local_mtime > 60 → visor 의 자동
+#                  download 가 60s+ 동안 완료 안 함 (visor 망가짐 시그널)
+# 둘 다 정상화 시 mtime 갱신 → expr 음수 → 자동 resolve.
+#
+# 메시지 포맷 (hlmon updatemon 스타일): humanizeTimestamp + URL + diff.
 #
 # 로컬 검증: `make promtool-check`.
 name: hyperliquid_vpub_rule_tier2
 rules:
-  - alert: VpubBinaryUpdateAvailable
-    # 60초만에 remote 가 local 보다 새로 보이면 HF 가 announce 한 것.
-    # for: 1m 으로 transient race (mtime 부동소수 등) 흡수.
-    expr: (vpub_binary_remote_mtime_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 60
+  - alert: VpubVisorBinaryUpdateAvailable
+    # HF 가 /validator-publisher/visor 에 새 binary publish. 사람이 install 해야 함.
+    # install 후 local mtime 갱신 → expr 음수 → 자동 resolve.
+    expr: (vpub_binary_remote_mtime_unix{component='visor',disable_alarm!='true'}
+         - vpub_binary_local_mtime_unix{component='visor'}) > 60
     for: 1m
     labels:
-      alertEvent: "vpub:binary:update"
+      alertEvent: "vpub:binary:visor:update"
       alertLevel: "medium"
       instance: "{{ $labels.instance }}"
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub: 새 publisher 바이너리 announced (remote +{{ $value }}s)"
-      description: "{{ $labels.instance }} remote Last-Modified 가 local mtime 보다 1분+ 신규 — HF announce. 변경사항 검토 후 수동 업그레이드."
+      summary: ":red_circle: vpub: visor binary 업데이트 announced"
+      description: |
+        {{ $labels.network }} visor binary at https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor has been updated.
+        New Last-Modified: {{ with printf "vpub_binary_remote_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        local mtime:      {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        → 검토 후 수동 업그레이드. install 하면 mtime 갱신 → 자동 resolve.
+
+  - alert: VpubChildBinaryDownloadFailed
+    # visor 가 "downloading new binary" 로그를 찍었는데 60s+ 동안 child file
+    # mtime 이 갱신 안 됨 → visor 의 maybe_download 가 stuck. retry budget 초과.
+    # 정상이면 1~3초 안에 mtime 갱신되어 expr 음수 → 자동 resolve.
+    # download_started_unix 시리즈가 없으면 (visor 가 한 번도 download 안 함)
+    # vector match 안 됨 → 자동 무발화.
+    expr: (vpub_binary_download_started_unix{disable_alarm!='true'}
+         - vpub_binary_local_mtime_unix) > 60
+    for: 1m
+    labels:
+      alertEvent: "vpub:binary:child:download_failed"
+      alertLevel: "high"
+      instance: "{{ $labels.instance }}"
+      target: "{{ $labels.target }}"
+      chain: "hyperliquid"
+    annotations:
+      summary: ":warning: vpub: {{ $labels.component }} 다운로드 실패 (60s+ mtime 미갱신)"
+      description: |
+        {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 60s+ 동안 local mtime 미갱신.
+        download log ts: {{ with printf "vpub_binary_download_started_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        local mtime:     {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
+        visor 로그 / 네트워크 / disk 점검. download 성공하면 mtime 갱신 → 자동 resolve.
 
   - alert: VpubBinaryRemoteCheckFail
-    expr: vpub_binary_remote_check_ok{disable_alarm!='true'} == 0
+    expr: vpub_binary_remote_check_ok{component='visor',disable_alarm!='true'} == 0
     for: 10m
     labels:
       alertEvent: "vpub:binary:check_fail"
@@ -36,5 +74,5 @@ rules:
       target: "{{ $labels.target }}"
       chain: "hyperliquid"
     annotations:
-      summary: "vpub: binary URL HEAD 10m+ 실패"
-      description: "{{ $labels.instance }} 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검."
+      summary: "vpub: visor binary URL HEAD 10m+ 실패"
+      description: "{{ $labels.instance }} visor 업그레이드 트래킹 비활성 — VPUB_BINARY_URL / 네트워크 점검."

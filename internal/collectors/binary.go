@@ -145,6 +145,16 @@ func (c *BinaryCollector) TickRemote(ctx context.Context) (ErrorKind, error) {
 	return "", nil
 }
 
+// SeedRemoteForTest sets remote_mtime_unix + remote_check_ok=1 for the given
+// component WITHOUT issuing HTTP. Used by integration tests that need the
+// series to appear on /metrics without standing up a fake HTTP server.
+func (c *BinaryCollector) SeedRemoteForTest(component string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.remoteMtime.WithLabelValues(component).Set(0)
+	c.remoteOK.WithLabelValues(component).Set(1)
+}
+
 // StartLocal / StartRemote launch independent ticker goroutines with their
 // own intervals. main.go composes these to honor the documented schedule.
 func (c *BinaryCollector) StartLocal(ctx context.Context, em *ExporterMetrics, interval time.Duration) {

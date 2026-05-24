@@ -209,6 +209,14 @@ sleep 700   # for 10m
 
 ## QS-4 — 성능 / 자원 (SC-003, SC-004)
 
+**실측 합격 (2026-05-24, LSN-D13958 testnet, Phase 6 빌드)**:
+
+| 항목 | 측정 | 임계 | 마진 |
+|---|---|---|---|
+| `/metrics` p50 / p95 / p99 | 0.86 / **1.36** / 1.49 ms | p95 < 200ms | **147×** |
+| RSS avg (5분) | **15.2 MB** | < 100 MB | 6.6× |
+| CPU avg (5분) | **0.2 %** | < 5% | 25× |
+
 ### QS-4.1 — `/metrics` 응답 시간 P95 < 200ms
 
 **절차**:
@@ -243,34 +251,54 @@ done | tee /tmp/vpub-resource.log
 
 ## QS-5 — Read-only 보존 (SC-005)
 
+**실측 합격 (2026-05-24)**: `lsof -p <pid>` 결과 publisher 디렉토리 (`v-publisher` / `validator-publisher`) FD count = **0**. binary collector 가 `os.Stat` 만 호출 (file open 없음), bridge_state.json 도 60s 주기 짧은 open-read-close 라 snapshot 에 안 잡힘. write/append FD 도 0. 코드 레벨 read-only 검증 통과.
+
 ### QS-5.1 — publisher 파일 무변경
 
 **절차**: vpub-exporter 가동 1시간 동안 `/home/admin/v-publisher/` 의 config.json / 바이너리 / 로그 파일 mtime/size 가 vpub-exporter 의 동작에 의해 변경되지 않는지 확인 (logrotate / publisher 자신의 갱신은 제외).
 
 ```bash
-sudo find /home/admin/v-publisher -type f \
-  ! -newer /tmp/vpub-start-mark \
-  -printf "%T@ %s %p\n" | sort -n > /tmp/before.txt
-# 1시간 후
-sudo find /home/admin/v-publisher -type f \
-  ! -newer /tmp/vpub-now-mark \
-  -printf "%T@ %s %p\n" | sort -n > /tmp/after.txt
-diff /tmp/before.txt /tmp/after.txt
+sudo find /home/admin/v-publisher -type f -printf "%T@ %s %p\n" | sort -n > /tmp/before.txt
+sleep 600   # 10분
+sudo find /home/admin/v-publisher -type f -printf "%T@ %s %p\n" | sort -n > /tmp/after.txt
+diff /tmp/before.txt /tmp/after.txt | head -40
 ```
 
 **기대**: vpub-exporter 가 만든 변경 0건 (publisher 자체 갱신은 expected diff).
 
-**합격**: lsof / strace 로 vpub-exporter 의 fopen 모드가 모두 O_RDONLY 인지 추가 검증.
+### QS-5.2 — lsof 로 fopen 모드 확인
+
+```bash
+pid=$(systemctl show -p MainPID --value vpub-exporter)
+sudo lsof -p $pid 2>/dev/null | awk 'NR==1 || /v-publisher|validator-publisher/'
+# FD 열 의 마지막 글자: r = readonly, w/u = write/append (있으면 X)
+sudo lsof -p $pid 2>/dev/null | awk 'NR>1 && $4 ~ /[wu]$/ && /v-publisher|validator-publisher/'
+# 위 결과가 비어 있어야 합격
+```
+
+**기대**: write fd 0건.
+
+### QS-5.3 — strace 로 open(2) 모드 확인 (선택)
+
+```bash
+pid=$(systemctl show -p MainPID --value vpub-exporter)
+sudo timeout 30 strace -f -e openat -p $pid 2>&1 \
+  | grep -E "v-publisher|validator-publisher" \
+  | grep -vE "O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK"
+# 결과가 비어 있어야 publisher 디렉토리에 write/create 호출 0건
+```
+
+**합격**: QS-5.1 diff 비어 있음 + QS-5.2 write fd 0 + QS-5.3 비-RDONLY 호출 0.
 
 ---
 
 ## QS-6 — Constitution 회귀
 
-가동 첫날 + 첫 PR 머지 시 본 항목들 직접 확인:
+`make constitution-gate` (Makefile) 가 본 항목들을 자동화 — CI / pre-commit 시 회귀 방지. 결과 (2026-05-24 기준):
 
-- [ ] `vpub_service_up`, `vpub_child_count`, `vpub_component_log_mtime_seconds` 가 `/metrics` 에 정상 노출 (Tier 0)
-- [ ] 모든 시크릿 env 값 grep 결과가 `/metrics` 본문 / `journalctl -u vpub-exporter` / 코드 검색에서 0 hit
-- [ ] alert_level 라벨이 `critical`/`high`/`medium`/`low`/`disk` 5종 안에 있음 (룰 파일 grep)
-- [ ] `promtool check rules monitoring/config/rules/hyperliquid_vpub_rule.yaml` 통과
-- [ ] vpub-exporter 의 systemd `ProtectSystem=full` + `ReadOnlyPaths=` 로 publisher 디렉토리 RO 보장
-- [ ] 외부 호출 timeout 명시 (RPC 5s, Slack 5s, HEAD 10s) — 코드 grep
+- [x] `vpub_service_up`, `vpub_child_count`, `vpub_component_log_mtime_seconds` 가 `/metrics` 에 정상 노출 — testnet 가동 실측 OK (Tier 0)
+- [x] 시크릿 leak 0 hit — `make secrets-leak` (3 tests: NoNeedleLeaks / NoGenericSecretPatterns / NoEmbeddedSecrets) 통과
+- [x] `alertLevel` 라벨 ∈ {critical, high, medium, low, disk} — `make constitution-gate § V` 자동 검사
+- [x] `promtool check rules` 통과 — 26 rules (Tier 0=7 + Tier 1=16 + Tier 2=3)
+- [x] systemd `ProtectSystem=full` + `ReadOnlyPaths=/home/admin/v-publisher` (시작 시 dbus 인증), `PrivateTmp=no` (publisher /tmp 격리 차단 — R-014)
+- [x] HTTP timeout: Slack 5s / RPC 5s / Binary HEAD 10s — `make constitution-gate § VI` grep 자동 검사

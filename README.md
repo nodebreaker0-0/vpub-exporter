@@ -362,7 +362,9 @@ publisher 는 4 binary 로 구성: **visor** (spawn manager, 사람이 install) 
 
 ## Alert Rules — 언제 어떤 알람이 울리고, 울리면 뭘 봐야 하나
 
-monitoring 레포의 `config/rules/hyperliquid_vpub_rule.yaml` 로 배포되는 22 룰. 자세한 yaml 은 [`monitoring/rules/hyperliquid_vpub_rule.yaml`](monitoring/rules/hyperliquid_vpub_rule.yaml), 명세는 [`specs/001-vpub-exporter/contracts/alerts.md`](specs/001-vpub-exporter/contracts/alerts.md).
+monitoring 레포의 `config/rules/hyperliquid_vpub_rule.yaml` 로 배포되는 26 룰 (Tier 0=7 + Tier 1=16 + Tier 2=3 — R-019 per-component 적용). 자세한 yaml 은 [`monitoring/rules/hyperliquid_vpub_rule.yaml`](monitoring/rules/hyperliquid_vpub_rule.yaml), 명세는 [`specs/001-vpub-exporter/contracts/alerts.md`](specs/001-vpub-exporter/contracts/alerts.md).
+
+> **Slack template 주의**: monitoring 레포의 alarmer 가 슬랙 메시지에 alert annotation 중 **`summary` 만 노출**. `description` 은 prometheus `/alerts` API 로만 조회 가능. 룰 작성 시 운영자가 화면에서 봐야 할 핵심 정보 (시각/URL/diff) 는 summary 한 줄에 압축 — Tier 2 룰이 reference 패턴. `humanizeTimestamp` / `humanizeDuration` / `query` 함수 호환 OK.
 
 ### alertLevel 라우팅 (B-Harvest alertmanager 컨벤션)
 
@@ -375,6 +377,19 @@ monitoring 레포의 `config/rules/hyperliquid_vpub_rule.yaml` 로 배포되는 
 ### Testnet vs Mainnet 분기
 
 `critical` 6 룰은 모두 **mainnet 한정** (expr 에 `network!="testnet"` matcher). 동일 expr 의 testnet 복제 (`<Name>Testnet`) 가 `alertLevel: high` 로 따로 발화 — PagerDuty 노이즈 차단.
+
+### Mainnet 가동 체크리스트
+
+HF mainnet 가동 시점에 한 번에 해야 할 것 (R-006 announce 이후):
+
+1. `env/vpub-exporter.env.mainnet.example` 복사 → `/etc/vpub-exporter.env` 작성. `/home/ubuntu/v-publisher` 경로 + 7 Arbitrum RPC + Slack token / channel 채우기
+2. `monitoring/agents/Main_hyperliquid_VPUB_apn1.toml` 의 `<MAINNET_IP>` 치환 → monitoring 레포 PR
+3. linux/amd64 바이너리 install (`/home/admin/vpub-exporter/bin/...` 또는 `/home/ubuntu/...`)
+4. `sudo systemctl enable --now vpub-exporter`
+5. `curl localhost:8002/metrics | grep "^vpub_"` 으로 노출 확인 — 특히 `vpub_binary_local_mtime_unix{component=...}` 4 시리즈 + `vpub_binary_remote_check_ok{component="visor"} == 1`
+6. monitoring 레포의 prometheus 가 새 instance 를 scrape 하는지 (`curl monitor.bharvest.io:9090/api/v1/targets`) 확인
+7. critical 룰 6건이 mainnet 인스턴스에서 발화 가능한 상태인지 alertmanager 점검 (PagerDuty 라우팅 1회 testalrt 로 dry-run 추천)
+8. R-005 mainnet RPC quorum 임계 (현재 `< 4` 가설) 실측 후 정정
 
 ### A. Tier 0 — 프로세스 / 로그
 

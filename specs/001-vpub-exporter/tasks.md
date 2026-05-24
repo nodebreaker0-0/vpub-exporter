@@ -199,6 +199,29 @@ description: "vpub-exporter implementation tasks (Tier 0+1+2)"
 
 ---
 
+## Phase 6 — Per-component binary tracking (R-019, 2026-05-24)
+
+**Trigger**: 2026-05-24 운영 로그 분석에서 visor 가 `/<child>/active` 를 polling 하여 child × 3 (bridge-voter / outcome-voter / reference-oracle-publisher) 을 자체 download 함을 발견. visor URL 단일 추적으로는 child 업데이트/실패 감지 불가.
+
+**Resolution**: visor 는 HEAD 추적 (사람 install 시그널), child × 3 은 visor 로그의 `INFO visor: downloading new binary` 라인 시각과 file mtime 비교. download 성공/실패 모두 자동 resolve.
+
+- [x] **T081** [US3] `internal/config/config.go` — `BinaryTargets map[ComponentName]string` 추가, legacy `VPUB_BINARY_PATH` 흡수, `VPUB_BINARY_TARGETS` 신규 env 파싱 (unknown component 거부).
+- [x] **T082** [US3] `internal/collectors/binary.go` — `local_mtime_unix` / `remote_mtime_unix` / `remote_check_ok` 모두 `{component}` GaugeVec 으로. remote 는 visor 만. 한 component 실패가 다른 component 막지 않게 loop.
+- [x] **T083** [US3] `internal/collectors/download_logs.go` 신규 — visor 로그 패턴 `INFO visor: downloading new binary self.binary_name="<child>"` → `vpub_binary_download_started_unix{component=<child>}` gauge. 4 component 외 label cardinality 가드.
+- [x] **T084** [US3] `internal/collectors/{binary,download_logs}_test.go` — multi-component happy path / per-component error isolation / cardinality guard / log pattern fidelity (production 라인으로 fixture).
+- [x] **T085** [US3] `monitoring/rules/hyperliquid_vpub_rule_tier2.yaml` — `VpubBinaryUpdateAvailable` → `VpubVisorBinaryUpdateAvailable` (medium, `component="visor"` matcher) + `VpubChildBinaryDownloadFailed` (high, `download_started_unix - local_mtime > 60`). 메시지 summary 한 줄에 `humanizeTimestamp + humanizeDuration` 압축 (monitoring alarmer slack-only summary 호환).
+- [x] **T086** [US3] 통합본 + monitoring 레포 sync + parser-wrap promtool check (26 rules pass).
+- [x] **T087** [US3] spec.md / research.md / contracts/{metrics,alerts}.md / README.md / quickstart.md QS-3 / env.example 백포트.
+- [x] **T088** [US3] testnet 실측 검증:
+  - VpubVisorBinaryUpdateAvailable firing → `:red_circle: ... HF Last-Modified 2026-05-22 03:50:10 UTC (local 보다 20594d ...)` (ddoa-low)
+  - VpubChildBinaryDownloadFailed firing → `:warning: vpub: bridge-voter 다운로드 실패 — visor download 로그 후 20596d ...` (ddoa-high)
+  - 양쪽 알람 firing 후 file mtime 원복 시 자동 resolve.
+  - 운영 발견: ddoa-high 채널에 vo_slack_bot invite 필요했음.
+
+**Checkpoint 6**: ✅ Phase 6 합격. visor + 3 child 모두 추적, 사람 액션과 visor 자동 동기화 실패가 의미별로 분리된 알람.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase 의존성

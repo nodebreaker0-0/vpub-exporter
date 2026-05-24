@@ -1,0 +1,26 @@
+# Main_hyperliquid_VPUB_apn1 — vpub-exporter mainnet target.
+#
+# Status (2026-05-24): PLACEHOLDER — fill in <MAINNET_IP> and adjust the
+# region suffix to match the actual deployment location at gov-time.
+# Mainnet publisher is expected to run as user=ubuntu (homedir
+# /home/ubuntu/v-publisher), so adjust env / systemd unit accordingly
+# before installing vpub-exporter on the mainnet host.
+#
+# Rules live in config/rules/hyperliquid_vpub_rule.yaml (shared with testnet).
+# Critical-tier rules are mainnet-only (`network!="testnet"` matcher) — this
+# instance will start triggering PagerDuty paths the moment it scrapes
+# successfully.
+
+instance = 'Main_hyperliquid_VPUB_apn1'
+
+[[job_targets]]
+job_name = 'node-exporter'
+target = '<MAINNET_IP>:59100'
+
+[[job_targets]]
+job_name = 'vpub-exporter'
+target = '<MAINNET_IP>:8002'
+
+[labels]
+chain = 'hyperliquid'
+network = 'mainnet'

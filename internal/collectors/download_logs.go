@@ -70,6 +70,14 @@ func NewDownloadLogsCollector(reg prometheus.Registerer, visorLogDir string, t l
 
 func (c *DownloadLogsCollector) CollectorName() string { return "download_logs" }
 
+// SeedDownloadStartedForTest registers a fresh DownloadLogsCollector on reg
+// and seeds one component sample so the series shows up on /metrics. Used
+// only by tests/integration/full_metrics_test.go.
+func SeedDownloadStartedForTest(reg prometheus.Registerer, component string) {
+	c := NewDownloadLogsCollector(reg, "/tmp/no-such-visor-log", nil)
+	c.downloadStarted.WithLabelValues(component).Set(0)
+}
+
 // Start subscribes the tailer to the visor log dir and consumes matches.
 // Returns when ctx is canceled.
 func (c *DownloadLogsCollector) Start(ctx context.Context, em *ExporterMetrics) {

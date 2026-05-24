@@ -6,6 +6,8 @@
 # VpubBridgeStaleVote / Long 도 mainnet only.
 # VpubLogStale/Long 은 component!="visor" (자체 로그 빈도 낮음).
 # Tier 2 R-019: per-component (visor manual install + child × 3 자동 download fail).
+# Tier 2 summary compaction: monitoring alarmer 가 슬랙에 summary 만 렌더하므로
+# humanizeTimestamp + diff 를 summary 한 줄에 압축. description 은 디버깅용.
 name: hyperliquid_vpub_rule
 rules:
   - alert: VpubServiceDown
@@ -299,12 +301,12 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: ':red_circle: vpub: visor binary 업데이트 announced'
+      summary: ':red_circle: vpub: visor binary 업데이트 announced — HF Last-Modified {{ with printf "vpub_binary_remote_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }} (local 보다 {{ $value | humanizeDuration }} 신규) → 검토 후 수동 업그레이드'
       description: |
         {{ $labels.network }} visor binary at https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor has been updated.
         New Last-Modified: {{ with printf "vpub_binary_remote_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
         local mtime:      {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"visor\"}" $labels.instance | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
-        → 검토 후 수동 업그레이드. install 하면 mtime 갱신 → 자동 resolve.
+        install 하면 mtime 갱신 → expr 음수 → 자동 resolve.
   - alert: VpubChildBinaryDownloadFailed
     expr: (vpub_binary_download_started_unix{disable_alarm!='true'} - vpub_binary_local_mtime_unix) > 60
     for: 1m
@@ -315,12 +317,12 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: ':warning: vpub: {{ $labels.component }} 다운로드 실패 (60s+ mtime 미갱신)'
+      summary: ':warning: vpub: {{ $labels.component }} 다운로드 실패 — visor download 로그 후 {{ $value | humanizeDuration }} mtime 미갱신 (visor 로그 / 네트워크 / disk 점검)'
       description: |
-        {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 60s+ 동안 local mtime 미갱신.
+        {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 mtime 미갱신.
         download log ts: {{ with printf "vpub_binary_download_started_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
         local mtime:     {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
-        visor 로그 / 네트워크 / disk 점검. download 성공하면 mtime 갱신 → 자동 resolve.
+        download 성공하면 mtime 갱신 → 자동 resolve.
   - alert: VpubBinaryRemoteCheckFail
     expr: vpub_binary_remote_check_ok{component='visor',disable_alarm!='true'} == 0
     for: 10m

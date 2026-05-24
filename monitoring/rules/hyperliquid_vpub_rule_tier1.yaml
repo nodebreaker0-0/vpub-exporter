@@ -84,7 +84,7 @@ rules:
       description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과'
   - alert: VpubBridgeStaleVoteLong
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"})
-      > 604800
+      > 21600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote_long
@@ -95,7 +95,7 @@ rules:
     annotations:
       summary: 'vpub bridge: 6h+ 성공 vote 없음'
       description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 —
-        비정상'
+        비정상. mainnet 가동 후 실측 vote 빈도에 맞춰 임계 재조정 예정 (R-017b)'
   - alert: VpubBridgeStaleVoteLongTestnet
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network="testnet"})
       > 604800
@@ -107,8 +107,8 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: 'vpub bridge: 6h+ 성공 vote 없음'
-      description: '[testnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 —
+      summary: 'vpub bridge: 7d+ 성공 vote 없음 (testnet)'
+      description: '[testnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 7d 경과 —
         비정상'
   - alert: VpubBridgeAllFail
     expr: "(\n  increase(vpub_bridge_vote_total{status=\"ok\",disable_alarm!='true'}[1h])\

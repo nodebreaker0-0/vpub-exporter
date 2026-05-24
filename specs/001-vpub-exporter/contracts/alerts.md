@@ -167,7 +167,7 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과"
 
 - alert: VpubBridgeStaleVoteLong
-  expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true'}) > 21600
+  expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 21600   # 6h, mainnet only
   for: 5m
   labels:
     alertEvent: "vpub:bridge:stale_vote_long"
@@ -177,7 +177,22 @@ promtool check rules monitoring/rules/hyperliquid_vpub_rule.yaml
     chain: "hyperliquid"
   annotations:
     summary: "vpub bridge: 6h+ 성공 vote 없음"
-    description: "{{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상"
+    description: "[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 6h 경과 — 비정상. mainnet 가동 후 실측 vote 빈도 보고 임계 재조정 (R-017c pending)."
+
+- alert: VpubBridgeStaleVoteLongTestnet
+  # R-017b (2026-05-24): testnet 입금 트래픽 0건이라 6h 임계 영구 false-positive.
+  # 7d 로 확장 + alertLevel high (PagerDuty 차단).
+  expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network="testnet"}) > 604800   # 7d, testnet
+  for: 5m
+  labels:
+    alertEvent: "vpub:bridge:stale_vote_long:testnet"
+    alertLevel: "high"
+    instance: "{{ $labels.instance }}"
+    target: "{{ $labels.target }}"
+    chain: "hyperliquid"
+  annotations:
+    summary: "vpub bridge: 7d+ 성공 vote 없음 (testnet)"
+    description: "[testnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 7d 경과 — 비정상"
 
 - alert: VpubBridgeAllFail
   expr: |

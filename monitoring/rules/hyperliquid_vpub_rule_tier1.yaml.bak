@@ -84,7 +84,7 @@ rules:
       description: '[mainnet] {{ $labels.instance }} 마지막 성공 bridge vote 이후 1h 경과'
   - alert: VpubBridgeStaleVoteLong
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"})
-      > 604800
+      > 21600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote_long
@@ -98,7 +98,7 @@ rules:
         비정상'
   - alert: VpubBridgeStaleVoteLongTestnet
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network="testnet"})
-      > 604800
+      > 21600
     for: 5m
     labels:
       alertEvent: vpub:bridge:stale_vote_long:testnet

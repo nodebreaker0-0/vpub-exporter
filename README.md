@@ -204,15 +204,18 @@ Testnet siblings of every alert run at `alertLevel: low` to keep `#ddoa-high` qu
 | Rule | Fires when | Operator next step |
 |---|---|---|
 | `VpubServiceDown` (critical, mainnet) | `vpub_service_up == 0` for 30s | `journalctl -u validator-publisher`; restart? incident? |
-| `VpubChildMissing` (critical, mainnet) | child count < 3 sustained | visor spawn loop broken — see visor log |
-| `VpubBridgeRpcMajorityDown` (high) | live RPCs < 4 (mainnet) / < 2 (testnet) | rotate RPC keys or add provider |
-| `VpubBridgeStaleVote{,Long}` | last successful bridge vote older than 1h / 6h (mainnet only) | Arbitrum RPC issue or bridge_voter stuck |
+| `VpubChildMissing` (critical, mainnet) | `min_over_time(vpub_child_count[5m]) < 3` — restart-loop dips counted (R-022a) | visor spawn loop broken — see visor log |
+| `VpubVisorChildRestartLoop` (critical, mainnet) | visor logs `restarting process` 5+ times in 5m (R-022b) | version skew / spawn error — `journalctl -u validator-publisher` + visor log |
+| `VpubVisorCrit` (critical, mainnet) | visor emits a `CRIT`/`ERROR` line (R-022b) | early warning before child or visor exit — read the matched line and act |
+| `VpubBridgeRpcMajorityDown` (high) | live RPCs < 4 (mainnet) / < 2 (testnet) — HF: 4/7 quorum (R-005c) | rotate RPC keys or add provider |
+| `VpubBridgeRpcDisagreement` (high) | 5m window has 2+ disagreements — HF: ≤1 per vote (R-005c) | one RPC giving different answers — Sybil / key compromise / indexer bug |
+| `VpubBridgeStaleVote{,Long}` (high) | last successful bridge vote older than 30m / 2h (R-021 jail-safe, mainnet only) | Arbitrum RPC issue or bridge_voter stuck — jail risk |
+| `VpubOracleStaleVote{,Long}` (high) | last successful oracle vote older than 1m / 5m (R-021 jail-safe, mainnet only) | reference_oracle stuck — jail risk |
 | `VpubVisorBinaryUpdateAvailable` (medium) | HF published a newer `/validator-publisher/visor` | review changelog, install manually |
 | `VpubChildBinaryDownloadFailed` (high) | visor logged "downloading new binary" but the child file's mtime didn't catch up within 60s | visor's `maybe_download` is stuck — check network / disk |
 | `VpubSlackTokenInvalid` (critical, mainnet) | Slack `auth.test` failing for 5m | **the publisher's own Slack alerts may be missing too** |
-| `VpubVisorChildRestartLoop` (critical, mainnet) | visor logs `restarting process` 5+ times in 5m | version skew / spawn error — `journalctl -u validator-publisher` + visor log |
-| `VpubVisorCrit` (critical, mainnet) | visor emits a `CRIT`/`ERROR` line | early warning before child or visor exit — read the matched line and act |
-| `VpubChildMissing` (critical, mainnet) | `min_over_time(vpub_child_count[5m]) < 3` | catches restart-loop dips that 30s scrape sampling misses (R-022a) |
+
+> Mainnet bridge_voter / reference_oracle are temporarily disabled by HF (pending L1 upgrade). The five corresponding rules (`VpubBridgeStaleVote{,Long}`, `VpubBridgeStateStuck`, `VpubOracleStaleVote{,Long}`) ship with `> 30d` thresholds as a soft silence; restore to the R-021 jail-safe values above the moment the L1 upgrade lands. Restore script in `specs/001-vpub-exporter/research.md § R-020`.
 
 ---
 

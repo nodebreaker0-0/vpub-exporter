@@ -288,6 +288,48 @@ make verify
 
 ---
 
+## R-020b — bridge/oracle 가 sign 만 안 하는 게 아니라 log 도 안 찍음 (2026-05-24)
+
+**발견**: R-020 적용 후에도 mainnet 에서 다음 알람 firing:
+- `VpubLogStale` / `VpubLogStaleLong` — component=bridge-voter / reference-oracle-publisher
+- `VpubChildBinaryDownloadFailed` — component=outcome-voter / reference-oracle-publisher
+
+원인: testnet 에선 bridge/oracle 이 vote 안 해도 polling 라인 (`scanned from_block=...`) 등을 찍어서 log mtime 갱신됨. mainnet 은 **disabled 라 process 자체 아무 라인도 안 찍음** → 로그 디렉토리 mtime 영구 stale.
+
+또 `VpubChildBinaryDownloadFailed` 의 outcome-voter false-positive 정밀 진단 필요 (사용자 관찰: "mtime 갱신된거같긴한데"). 가설: visor 가 `downloading new binary` 라인은 찍었으나 disabled child 의 실제 file write 가 skip 되어 mtime 안 갱신.
+
+**Decision**:
+1. `VpubLogStale{,Long,LongTestnet}` component 매처 확장: `component!="visor"` → `component!~"visor|bridge-voter|reference-oracle-publisher"`. 결과: outcome-voter 만 log freshness 추적. bridge/oracle 의 stall 은 `VpubBridgeStaleVote` / `VpubOracleStaleVote` 가 (현재 R-020 silence 중이지만) 의미 있는 시그널 — log mtime 으로 중복 추적 불필요.
+2. `VpubChildBinaryDownloadFailed` expr 의 component 매처 추가: `=~"outcome-voter"`. visor 의 download log 가 bridge/oracle 에서 발생해도 알람 X.
+
+**Rationale**: outcome-voter 만 mainnet 에서 operational. 알람 모두 outcome-voter 한정.
+
+**복원 절차** (L1 upgrade 후):
+```bash
+# tier0.yaml — component 매처 좁혀서 원복
+sed -i 's|component!~"visor|bridge-voter|reference-oracle-publisher"|component!="visor"|g' \
+  monitoring/rules/hyperliquid_vpub_rule_tier0.yaml
+
+# tier2.yaml — download_failed 룰의 component 매처 제거
+python3 -c '
+import yaml
+f = "monitoring/rules/hyperliquid_vpub_rule_tier2.yaml"
+d = yaml.safe_load(open(f))
+for r in d["rules"]:
+    if r["alert"] == "VpubChildBinaryDownloadFailed":
+        r["expr"] = (
+            "(vpub_binary_download_started_unix{disable_alarm!=\"true\"}\n"
+            " - vpub_binary_local_mtime_unix) > 60"
+        )
+# ... yaml.dump 후 저장 (R-019 패턴)
+'
+# 통합본 재생성 + monitoring sync + make verify + push
+```
+
+**Pending 진단**: outcome-voter false-positive 가 진짜 visor 의 download log skip 인지, 아니면 다른 원인인지 확인 필요. 사용자 publisher 머신에서 `sudo grep "downloading new binary" /home/ubuntu/v-publisher/log/$(date -u +%Y%m%d)` 결과 + `curl localhost:8002/metrics | grep ^vpub_binary_` 비교.
+
+---
+
 ---
 
 ## R-019 — child binary 자동 동기화 모델 (2026-05-24 운영 로그 분석)

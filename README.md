@@ -33,9 +33,25 @@ Full metric catalogue: [`specs/001-vpub-exporter/contracts/metrics.md`](specs/00
 
 ### Build & install
 
-GitHub Releases are not yet published, so build from source. Two paths:
+Three paths — release binary is the fastest:
 
-#### Option A — build on the publisher host
+#### Option A — release binary (recommended)
+
+```bash
+mkdir -p ~/vpub-exporter/bin
+cd ~/vpub-exporter
+
+# Pull the latest release + sha256 + verify
+curl -L https://github.com/nodebreaker0-0/vpub-exporter/releases/latest/download/vpub-exporter-linux-amd64 \
+  -o bin/vpub-exporter
+curl -L https://github.com/nodebreaker0-0/vpub-exporter/releases/latest/download/vpub-exporter-linux-amd64.sha256 \
+  | sha256sum -c -
+chmod +x bin/vpub-exporter
+
+sudo install -D -m 0755 bin/vpub-exporter /home/$USER/vpub-exporter/bin/vpub-exporter
+```
+
+#### Option B — build on the publisher host
 
 ```bash
 # Go 1.21+
@@ -51,7 +67,7 @@ sudo install -D -o admin -g admin -m 0755 \
   /home/admin/vpub-exporter/bin/vpub-exporter
 ```
 
-#### Option B — cross-compile elsewhere, scp to host
+#### Option C — cross-compile elsewhere, scp to host
 
 ```bash
 # Dev box (macOS / Linux)
@@ -163,7 +179,7 @@ The exporter co-locates with the publisher because every signal it cares about �
 
 ## Alert rules
 
-26 rules, deployed via [`monitoring/rules/hyperliquid_vpub_rule.yaml`](monitoring/rules/hyperliquid_vpub_rule.yaml) (Tier 0 = 7 / Tier 1 = 16 / Tier 2 = 3). Full spec: [`specs/001-vpub-exporter/contracts/alerts.md`](specs/001-vpub-exporter/contracts/alerts.md).
+30 rules, deployed via [`monitoring/rules/hyperliquid_vpub_rule.yaml`](monitoring/rules/hyperliquid_vpub_rule.yaml) (Tier 0 = 11 / Tier 1 = 16 / Tier 2 = 3 — R-019 per-component binary tracking + R-022 visor restart-loop detection). Full spec: [`specs/001-vpub-exporter/contracts/alerts.md`](specs/001-vpub-exporter/contracts/alerts.md).
 
 ### alertLevel routing (B-Harvest convention)
 
@@ -194,6 +210,9 @@ Testnet siblings of every alert run at `alertLevel: low` to keep `#ddoa-high` qu
 | `VpubVisorBinaryUpdateAvailable` (medium) | HF published a newer `/validator-publisher/visor` | review changelog, install manually |
 | `VpubChildBinaryDownloadFailed` (high) | visor logged "downloading new binary" but the child file's mtime didn't catch up within 60s | visor's `maybe_download` is stuck — check network / disk |
 | `VpubSlackTokenInvalid` (critical, mainnet) | Slack `auth.test` failing for 5m | **the publisher's own Slack alerts may be missing too** |
+| `VpubVisorChildRestartLoop` (critical, mainnet) | visor logs `restarting process` 5+ times in 5m | version skew / spawn error — `journalctl -u validator-publisher` + visor log |
+| `VpubVisorCrit` (critical, mainnet) | visor emits a `CRIT`/`ERROR` line | early warning before child or visor exit — read the matched line and act |
+| `VpubChildMissing` (critical, mainnet) | `min_over_time(vpub_child_count[5m]) < 3` | catches restart-loop dips that 30s scrape sampling misses (R-022a) |
 
 ---
 
@@ -265,9 +284,9 @@ vpub-exporter/
 ├── cmd/vpub-exporter/main.go
 ├── internal/
 │   ├── binary/         HTTP HEAD + os.Stat probe
-│   ├── collectors/     11 collectors (service, logmtime, bridge_rpc, bridge_state,
+│   ├── collectors/     12 collectors (service, logmtime, bridge_rpc, bridge_state,
 │   │                   vote_logs, outcome_logs, outcome_slack, slack_health,
-│   │                   binary, download_logs)
+│   │                   binary, download_logs, visor_log)
 │   ├── config/         env + flag loading
 │   ├── logfs/          log dir / file enumeration
 │   ├── logtail/        polling tailer with rotation awareness

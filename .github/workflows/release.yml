@@ -2,6 +2,7 @@ name: release
 on:
   push:
     tags: ['v*']
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,8 +10,21 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
-      - run: make build-linux
+          go-version: "1.23"
+          cache: true
+      - name: verify before release
+        run: go test -race -count=1 ./...
+      - name: build linux/amd64
+        run: |
+          mkdir -p bin
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags "-s -w" \
+              -o bin/vpub-exporter-linux-amd64 \
+              ./cmd/vpub-exporter
+          sha256sum bin/vpub-exporter-linux-amd64 > bin/vpub-exporter-linux-amd64.sha256
       - uses: softprops/action-gh-release@v2
         with:
-          files: bin/vpub-exporter-linux-amd64
+          files: |
+            bin/vpub-exporter-linux-amd64
+            bin/vpub-exporter-linux-amd64.sha256
+          generate_release_notes: true

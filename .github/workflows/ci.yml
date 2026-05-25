@@ -28,14 +28,30 @@ jobs:
           curl -sSL "https://github.com/prometheus/prometheus/releases/download/v${version}/prometheus-${version}.linux-amd64.tar.gz" \
             | tar -xz --strip-components=1 -C /usr/local/bin "prometheus-${version}.linux-amd64/promtool"
           promtool --version
-      - name: check rules
+      - name: check rules (parser-wrap simulation)
+        # monitoring 레포 parser 가 PR merge 시 `{groups: [.]}` 로 wrap 후 promtool check.
+        # 같은 동작을 여기서 흉내내야 우리 단일 RuleGroup yaml 이 통과.
         run: |
-          if [ -d monitoring/rules ]; then
-            for f in monitoring/rules/*.yaml; do
-              [ -f "$f" ] || continue
-              echo "checking $f"
-              promtool check rules "$f"
-            done
-          else
-            echo "no rules yet"
+          if [ ! -d monitoring/rules ]; then
+            echo "no rules yet"; exit 0
           fi
+          for f in monitoring/rules/*.yaml; do
+            [ -f "$f" ] || continue
+            echo "::group::checking $f"
+            python3 -c "import yaml,sys; sys.stdout.write(yaml.safe_dump({'groups':[yaml.safe_load(open('$f'))]}, sort_keys=False))" \
+              | promtool check rules /dev/stdin
+            echo "::endgroup::"
+          done
+
+  secrets-and-constitution:
+    # Constitution IV (no secret leaks) + Constitution gates.
+    # Same checks run locally via `make verify`.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache: true
+      - run: make secrets-leak
+      - run: make constitution-gate

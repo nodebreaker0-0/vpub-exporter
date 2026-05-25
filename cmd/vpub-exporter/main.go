@@ -141,6 +141,9 @@ func run() error {
 	if cfg.VisorLogDir != "" {
 		dlc := vpubcoll.NewDownloadLogsCollector(reg, cfg.VisorLogDir, tailer)
 		go dlc.Start(ctx, exMetrics)
+		// R-022b: visor 자체 로그의 restart loop + CRIT 라인 카운트. 30s scrape 가 놓치는 restart cycle 잡음.
+		vlc := vpubcoll.NewVisorLogCollector(reg, cfg.VisorLogDir, tailer)
+		go vlc.Start(ctx, exMetrics)
 	}
 
 	mux := http.NewServeMux()

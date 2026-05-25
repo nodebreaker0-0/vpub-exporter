@@ -207,6 +207,9 @@
 - [ ] **R-017c PENDING** — mainnet 가동 후 24h~7d 동안 `vpub_bridge_last_vote_success_unix` 의 갱신 빈도 (inter-vote interval) 분포 측정. p99 의 2~3× 값을 `VpubBridgeStaleVoteLong` 임계로 확정. 측정 명령: `bash scripts/mainnet_burst_check.sh` 결과 + Prometheus query `histogram_quantile(0.99, rate(...))`.
 - [x] **R-005c (2026-05-25, HF 답신)** — mainnet bridge voter quorum = **4/7 + ≤1 disagreement per vote**. 본 문서 § R-005c 참조. `VpubBridgeRpcMajorityDown` 정확. `VpubBridgeRpcDisagreement` 임계 완화 필요 — L1 upgrade 후 R-021 와 동시 적용.
 - [ ] **R-003c PENDING** — `vpub_bridge_rpc_disagreement_total` 의 정확한 publisher 로그 라인 패턴 확정. 현재 `RPC failed` 임시는 호출 실패 카운터. L1 upgrade + 실제 disagreement 케이스 발생 시 로그 보고 정확한 정규식 백포트.
+- [x] **R-022 (2026-05-25, mainnet 운영 발견)** — visor 가 child 를 5초 cycle 로 restart loop 도는 동안 우리 30s scrape sampling 이 child_count=3 만 잡아서 `VpubChildMissing` critical 알람 누락. 본 문서 § R-022 참조. 두 갈래 fix 적용:
+  - R-022a: 룰만 정정 — `min_over_time(vpub_child_count[5m]) < 3` 으로 5분 window 안 dip 한 번이라도 잡음
+  - R-022b: 신규 collector `visor_log` — `vpub_visor_child_restart_total{component=...}` + `vpub_visor_crit_total` counter. 새 룰 4건 (`VpubVisorChildRestartLoop{,Testnet}` + `VpubVisorCrit{,Testnet}`).
 - [ ] **R-021 PENDING (2026-05-25, HF 답신)** — bridge/oracle 가 L1 upgrade 후 fully automatic → jail 위험. oracle 임계 5m/30m → 1m/5m, bridge 임계 1h/6h → 30m/2h, disagreement 임계 [15m]/5 → [5m]/≥2. 본 문서 § R-021 참조. L1 upgrade trigger 시 R-020 복원과 한 사이클로 적용.
 - [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
 
@@ -288,6 +291,70 @@ make verify
 **Alternatives considered**:
 - 룰을 `disable_alarm='true'` 라벨로 silencing → 우리 metric 라벨 인프라가 이를 지원하려면 별도 코드 변경 필요. 일시 silence 엔 임계 변경이 더 간단.
 - 영향 룰 yaml 통째로 주석 처리 → 까먹기 쉬움. 임계 변경이 grep 으로 찾기 좋음.
+
+---
+
+## R-022 — visor restart loop 가 30s scrape 으로 missed (2026-05-25, mainnet `--tmp-dir` 사건)
+
+**발견**: 2026-05-25 18:06 ~ , mainnet host. visor 새 build (0.1.0 / 2026-05-25T16:15) 가 child 에게 `--tmp-dir` flag 넘기는데 HF 의 child active heights (bridge=1, oracle=1, outcome=3) 가 옛 binary 가리킴 → child 가 unknown argument 로 exit 2 → systemd restart 5초 cycle 무한 loop. **`VpubChildMissing` (critical, mainnet) 알람이 firing 하지 않음** — `vpub_child_count` 메트릭이 5초 cycle 안에서 거의 항상 3 (spawn-up 상태) 으로 잡혀 30s scrape sampling 이 dip 을 놓침.
+
+**Decision — 두 갈래 fix**:
+
+### R-022a — 룰만 정정 (즉시 가시성)
+
+```yaml
+# 변경 전
+- alert: VpubChildMissing
+  expr: vpub_child_count{...} < 3
+  for: 30s
+
+# 변경 후
+- alert: VpubChildMissing
+  expr: min_over_time(vpub_child_count{...}[5m]) < 3
+  for: 30s
+```
+
+5분 window 안 한 번이라도 dip 잡힘. 30s scrape × 10 sample = 약 65% catch rate.
+
+### R-022b — 신규 visor_log collector (100% catch)
+
+새 file `internal/collectors/visor_log.go`:
+- tail `<VisorLogDir>/YYYYMMDD`
+- 패턴 1: `INFO\s+visor: restarting process\s+binary_path="[^"]*/([^/"]+)"` → counter `vpub_visor_child_restart_total{component=<binary basename>}`
+- 패턴 2: `(CRIT|ERROR)\s+visor:` (broad — managed process exited / visor run failed 등 future variants 도 흡수) → counter `vpub_visor_crit_total`
+
+신규 알람 4건 (mainnet + testnet 각 2):
+```yaml
+- alert: VpubVisorChildRestartLoop
+  expr: sum by (instance) (increase(vpub_visor_child_restart_total[5m])) >= 5
+  for: 1m
+  labels: { alertLevel: critical, network: mainnet }
+  # testnet 복제는 alertLevel low
+
+- alert: VpubVisorCrit
+  expr: increase(vpub_visor_crit_total[5m]) > 0
+  for: 1m
+  labels: { alertLevel: critical, network: mainnet }
+  # testnet 복제 low
+```
+
+**Rationale**:
+- vpub_child_count 의 sampling miss 는 publisher 가 정상일 때도 발생 가능 (visor 의 normal restart 1회 = 사실 catch 못 함). 우리 알람은 그건 의도적으로 missed (false positive 회피).
+- restart loop = visor 가 5분 안에 5+ 회 restart = 진짜 비정상. counter 누적 기반이라 1회 도 안 놓침.
+- visor CRIT 라인은 `VpubServiceDown` 보다 빠름 (visor 가 죽기 전 CRIT 먼저 찍음) — early warning.
+
+**Alternatives considered**:
+- A 단독 (min_over_time 만) → 65% catch. 진짜 stuck loop 도 놓칠 가능성. 채택 X.
+- B 단독 (counter 만) → 정상 restart 1회까지 잡음 (noise). 채택 X.
+- A + B = 둘 다 적용. min_over_time 으로 빠른 60% catch + counter 로 5분 누적 정밀 catch.
+
+**Test fixtures (production lines)**:
+```
+2026-05-25T18:25:29 INFO  visor: restarting process binary_path="/home/ubuntu/v-publisher/reference-oracle-publisher" height=1 n_restarts=14
+2026-05-25T18:25:34 CRIT  visor: critical error managed process exited unexpectedly binary_name="reference-oracle-publisher" ... exit_status=exit status: 2
+2026-05-25T07:18:32 CRIT  visor: critical error visor run failed error=Invalid cross-device link (os error 18)
+```
+모두 unit test `internal/collectors/visor_log_test.go` 의 fixture 로 인입됨.
 
 ---
 

@@ -205,6 +205,9 @@
 - [x] **추가 발견 (R-019b, 2026-05-24)** — mainnet 환경 차이 3건 식별 (사용자 보고): ubuntu homedir / 7 RPC / 로그량 ~10× testnet. 코드 변경 없이 systemd drop-in + env.mainnet.example + R-005 실측 절차 + 부하 측정 스크립트로 흡수.
 - [x] **추가 발견 (R-017b, 2026-05-24)** — testnet `VpubBridgeStaleVoteLongTestnet` 임계 6h → 7d (`> 604800`). testnet 입금 트래픽 0건 영구 false-positive 차단. mainnet `VpubBridgeStaleVoteLong` (critical) 은 6h 그대로 — mainnet 가동 후 vote 빈도 실측 후 R-017c 로 재조정 예정.
 - [ ] **R-017c PENDING** — mainnet 가동 후 24h~7d 동안 `vpub_bridge_last_vote_success_unix` 의 갱신 빈도 (inter-vote interval) 분포 측정. p99 의 2~3× 값을 `VpubBridgeStaleVoteLong` 임계로 확정. 측정 명령: `bash scripts/mainnet_burst_check.sh` 결과 + Prometheus query `histogram_quantile(0.99, rate(...))`.
+- [x] **R-005c (2026-05-25, HF 답신)** — mainnet bridge voter quorum = **4/7 + ≤1 disagreement per vote**. 본 문서 § R-005c 참조. `VpubBridgeRpcMajorityDown` 정확. `VpubBridgeRpcDisagreement` 임계 완화 필요 — L1 upgrade 후 R-021 와 동시 적용.
+- [ ] **R-003c PENDING** — `vpub_bridge_rpc_disagreement_total` 의 정확한 publisher 로그 라인 패턴 확정. 현재 `RPC failed` 임시는 호출 실패 카운터. L1 upgrade + 실제 disagreement 케이스 발생 시 로그 보고 정확한 정규식 백포트.
+- [ ] **R-021 PENDING (2026-05-25, HF 답신)** — bridge/oracle 가 L1 upgrade 후 fully automatic → jail 위험. oracle 임계 5m/30m → 1m/5m, bridge 임계 1h/6h → 30m/2h, disagreement 임계 [15m]/5 → [5m]/≥2. 본 문서 § R-021 참조. L1 upgrade trigger 시 R-020 복원과 한 사이클로 적용.
 - [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
 
 ---
@@ -327,6 +330,119 @@ for r in d["rules"]:
 ```
 
 **Pending 진단**: outcome-voter false-positive 가 진짜 visor 의 download log skip 인지, 아니면 다른 원인인지 확인 필요. 사용자 publisher 머신에서 `sudo grep "downloading new binary" /home/ubuntu/v-publisher/log/$(date -u +%Y%m%d)` 결과 + `curl localhost:8002/metrics | grep ^vpub_binary_` 비교.
+
+---
+
+## R-005c — RPC quorum 정확값 확정 (2026-05-25, HF 답신)
+
+**Source**: HF 측 운영자 (Jeff/대리) Telegram 답:
+> "it requires 4/7 and at most 1 disagreeing"
+
+**확정**:
+- mainnet bridge voter quorum: **min 4 RPCs live** out of 7
+- vote 1회 당 disagreement: **최대 1개 허용** (2개부터 vote fail)
+
+**기존 룰 평가**:
+
+| 룰 | 현재 | HF 답신 기준 | 정정 필요? |
+|---|---|---|---|
+| `VpubBridgeRpcMajorityDown` (mainnet) | `sum(...) < 4` | `< 4` 맞음 | ❌ |
+| `VpubBridgeRpcDisagreement` | `increase([15m]) > 5` | `< 2 per vote` | ✅ — 너무 느슨. `increase([5m]) >= 2` for 1m 권장 |
+| `VpubBridgeRpcMajorityDownTestnet` | `sum(...) < 2` | testnet max 3 — `< 2` 그대로 | ❌ |
+
+**Decision** (적용 시점 — L1 upgrade 후 R-020 복원과 동시):
+- `VpubBridgeRpcDisagreement`: `increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[5m]) >= 2` for 1m, alertLevel high
+
+**Vote 성공 조건 (HF 의 algorithm)** — 둘 다 AND:
+- **조건 A**: agreeing ≥ 4 (7 RPC 중 같은 답 4개 이상 = majority quorum)
+- **조건 B**: disagreeing ≤ 1 (다른 답 보내는 RPC 1개까지만 허용)
+
+**둘 중 하나라도 깨지면 vote skip**:
+- 조건 A 깨짐 (majority 부족) — `VpubBridgeRpcMajorityDown` 이 추적. RPC 다수 down 시 발화. disagreement 와 무관.
+- 조건 B 깨짐 (disagreement 2+) — `VpubBridgeRpcDisagreement` 가 추적. RPC 응답은 오지만 결과 다름 = Sybil / RPC 키 침해 / data corruption 의심.
+- 두 룰이 서로 **다른 vote-fail 원인** 잡음. 동시 firing 도 가능 (둘 다 깨진 경우).
+
+**왜 1 disagree 허용 / 2+ 거부**:
+- 1 disagree: network glitch / Arbitrum indexer lag / reorg — transient noise. vote 보냄.
+- 2+ disagree: systematic 한 의심. 잘못된 vote = 슬래싱 위험 → 안전하게 skip.
+
+**케이스 표 (vote OK / skip)**:
+
+| agreeing | disagreeing | down | A 만족 | B 만족 | 결과 |
+|---:|---:|---:|:-:|:-:|---|
+| 7 | 0 | 0 | ✅ | ✅ | vote OK |
+| 6 | 1 | 0 | ✅ | ✅ | vote OK (1 noise 허용) |
+| 5 | 2 | 0 | ✅ | ❌ | skip — Disagreement 알람 |
+| 4 | 0 | 3 | ✅ | ✅ | vote OK (3 down 무관) |
+| 3 | 1 | 3 | ❌ | ✅ | skip — MajorityDown 알람 (disagreement 1 은 무관) |
+| 4 | 2 | 1 | ✅ | ❌ | skip — Disagreement 알람 |
+| 0 | 0 | 7 | ❌ | ✅ | skip — MajorityDown 알람 |
+
+**중요한 layer 구분 — 두 quorum 헷갈리지 말 것**:
+- **RPC quorum** (이 룰의 영역): 한 publisher 안에서 7 RPC provider 의 majority. 우리 vpub-exporter 가 추적.
+- **L1 validator quorum** (별개 영역): HyperCore consensus 의 stake-weighted validator vote. 우리 책임 밖 — HyperCore 자체가 처리.
+
+**⚠️ Pending — R-003c — disagreement 패턴 정확값 미확정**:
+- 현재 패턴 `WARN bridge_voter::runner: RPC failed` 는 **RPC 호출 실패** (timeout/401) 추적. HF 의 "disagreement" (다른 값 응답) 와 다른 시그널.
+- testnet 9.7h 운영 + mainnet 가동 후 bridge disabled 라 진짜 disagreement 라인 본 적 없음.
+- L1 upgrade 후 bridge_voter 가동 + 실제 disagreement 케이스 발생 시 publisher 로그에서 정확한 라인 패턴 확정 → R-003c 백포트.
+- 우려: 현재 R-021 의 `>= 2 in 5m` 임계는 "RPC 실패 횟수" 기준. 진짜 disagreement counter 가 분리되면 임계 정밀화 가능.
+
+---
+
+## R-021 — Jail-safe 임계 강화 (2026-05-25, HF 답신 기반)
+
+**Source**: HF 측 답:
+> "once the bridge voter and reference oracle publisher are fully implemented, they should be fully automatic. So probably jailing for those components."
+
+**문제**: 현재 임계는 R-003/R-004 의 "정상 ↔ 비정상" 구분용. **jail 발생 전 detect** 가 목표라면 더 보수적이어야 함. oracle 의 평균 vote interval = 4.3s 라 5m stale = 70+ vote miss = 사실상 망함. 운영자 인지 → 진단 → 수동 fix 의 골든타임 못 잡음.
+
+**Decision** (적용 시점 — L1 upgrade 후 R-020 복원과 동시):
+
+| 룰 | 현재 | jail-safe | 비고 |
+|---|---|---|---|
+| `VpubOracleStaleVote` | `> 300` (5m, high) | `> 60` (**1m**, high) | 평균 4.3s 기준 14 vote miss 시점 |
+| `VpubOracleStaleVoteLong` | `> 1800` (30m, R-020 high) | `> 300` (**5m**, high) | critical 격하 (R-020 정책 그대로) — 5m = 70 vote miss = 마지막 경고 |
+| `VpubBridgeStaleVote` | `> 3600` (1h) | `> 1800` (**30m**, high) | mainnet vote 빈도 R-017c 측정 후 정밀 조정 — 보수적 기본값 |
+| `VpubBridgeStaleVoteLong` | `> 21600` (6h, R-020 high) | `> 7200` (**2h**, high) | 동상 |
+| `VpubBridgeRpcDisagreement` | `[15m] > 5` | `[5m] >= 2` for 1m (R-005c) | HF "≤1 per vote" 반영 |
+
+**Rationale**:
+- jail = delegation 손실 + reputation 손상. 운영자 phone notification 부담 < jail 비용.
+- oracle 1m alert: 4.3s × 14 = 60s 안에 14 vote miss. 운영자가 인지하고 ssh 들어가 진단 시작할 골든타임.
+- oracle 5m critical: jail 직전 마지막 경고. 사용자 결정 (R-020 alertLevel 정책) 으로 high 유지 — silent failure 가 아니라 운영자가 채널 보면 즉시 인지 가능한 영역.
+- bridge 30m/2h: 입금 트래픽이 sparse 할 가능성 — mainnet 실측 (R-017c) 후 더 짧게 조정 가능. 일단 보수적 기본.
+
+**Trade-off**:
+- oracle 1m 알람이 사실 false-positive 일 수도 (network glitch). `for: 1m` 으로 안정화 — 총 timeout 2m. 그래도 잡아낸 게 너무 많으면 R-021b 로 임계 완화.
+
+**복원/적용 절차** (L1 upgrade trigger 시 한 사이클):
+
+```bash
+cd /Users/ijeseon/hl-agent/validator/vpub-exporter
+
+# 1) R-020 임계 복원 (5룰) — research.md § R-020 스크립트
+# 2) R-020b component matcher 복원 — research.md § R-020b 스크립트
+# 3) R-005c + R-021 임계 강화 — 한 sed/python 으로 적용
+python3 <<'PY'
+import yaml
+f = "monitoring/rules/hyperliquid_vpub_rule_tier1.yaml"
+new_thresholds = {
+    "VpubOracleStaleVote":          ("> 60", "1m"),
+    "VpubOracleStaleVoteLong":      ("> 300", "5m"),
+    "VpubBridgeStaleVote":          ("> 1800", "30m"),
+    "VpubBridgeStaleVoteLong":      ("> 7200", "2h"),
+    "VpubBridgeRpcDisagreement":    ("expr-replace", None),  # 별도
+}
+# ... yaml dump 후 저장
+PY
+
+# 4) 통합본 재생성 + monitoring sync + make verify + git push
+```
+
+**Pending — L1 upgrade 까지**:
+- R-021 의 oracle 1m/5m 임계가 너무 빡센지 운영자 부담 평가는 가동 후 실측만 가능.
+- R-017c 의 bridge mainnet 실측 vote 빈도가 R-021 의 30m/2h 와 align 되는지 확인.
 
 ---
 

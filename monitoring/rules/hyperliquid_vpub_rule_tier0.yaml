@@ -62,7 +62,7 @@ rules:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
       description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubLogStale
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!~"visor|bridge-voter|reference-oracle-publisher"}) > 300
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
     for: 2m
     labels:
       alertEvent: vpub:log:stale
@@ -74,7 +74,7 @@ rules:
       summary: vpub {{ $labels.component }} 로그 5분+ 멈춤
       description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
   - alert: VpubLogStaleLong
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!~"visor|bridge-voter|reference-oracle-publisher"}) > 1800
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:log:stale_long
@@ -86,7 +86,7 @@ rules:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
       description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
   - alert: VpubLogStaleLongTestnet
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!~"visor|bridge-voter|reference-oracle-publisher"}) > 1800
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!="visor"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:log:stale_long:testnet

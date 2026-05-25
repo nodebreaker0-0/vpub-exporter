@@ -39,8 +39,8 @@ rules:
         install 하면 mtime 갱신 → expr 음수 → 자동 resolve.
   - alert: VpubChildBinaryDownloadFailed
     expr: |-
-      (vpub_binary_download_started_unix{component=~"outcome-voter",disable_alarm!='true'}
-       - vpub_binary_local_mtime_unix{component=~"outcome-voter"}) > 60
+      (vpub_binary_download_started_unix{disable_alarm!='true'}
+       - vpub_binary_local_mtime_unix) > 60
     for: 1m
     labels:
       alertEvent: vpub:binary:child:download_failed
@@ -54,7 +54,7 @@ rules:
         {{ $labels.network }} visor 가 {{ $labels.component }} download 로그를 찍은 후 mtime 미갱신.
         download log ts: {{ with printf "vpub_binary_download_started_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
         local mtime:     {{ with printf "vpub_binary_local_mtime_unix{instance=\"%s\",component=\"%s\"}" $labels.instance $labels.component | query }}{{ . | first | value | humanizeTimestamp }}{{ end }}
-        download 성공하면 mtime 갱신 → 자동 resolve. (R-020b: outcome-voter 만 활성, bridge/oracle 은 L1 upgrade 까지 silence)
+        download 성공하면 mtime 갱신 → 자동 resolve.
   - alert: VpubBinaryRemoteCheckFail
     expr: vpub_binary_remote_check_ok{component='visor',disable_alarm!='true'} == 0
     for: 10m

@@ -38,9 +38,15 @@ rules:
       summary: 'vpub: validator-publisher.service down'
       description: '[testnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubChildMissing
-    # R-022a: visor restart loop (5s cycle) 가 30s scrape sampling 으로 missed.
-    # min_over_time 으로 5분 window 안 1회 dip 잡음. R-022b 의 restart counter 와 보완.
-    expr: min_over_time(vpub_child_count{disable_alarm!='true',network!="testnet"}[5m]) < 3
+    # R-022 통합 (B 워크어라운드): 새 alertEvent (restart_loop / crit) 가 monitoring alarmer 의
+    # subscription 에 등록 안 됨 → 옛 alertEvent 그대로 유지하고 expr 에 OR 시그널 통합.
+    # 셋 중 어느 하나라도 만족하면 firing — restart loop 100% 잡힘.
+    expr: |
+      min_over_time(vpub_child_count{disable_alarm!='true',network!="testnet"}[5m]) < 3
+      or
+      sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
+      or
+      sum by (instance) (increase(vpub_visor_crit_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
     for: 30s
     labels:
       alertEvent: vpub:visor:child_missing
@@ -49,10 +55,15 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: 'vpub: visor child 누락 (5m 내 min={{ $value }}/3)'
-      description: '[mainnet] {{ $labels.instance }} visor child 수가 5분 안 한 번이라도 3 미만 = restart loop 가능성.'
+      summary: 'vpub: visor child 문제 (count<3 또는 restart loop 또는 CRIT)'
+      description: '[mainnet] {{ $labels.instance }} visor 가 child 를 5분 안 정상 유지 못함. journalctl + /home/$USER/v-publisher/log/$(date -u +%Y%m%d) 확인.'
   - alert: VpubChildMissingTestnet
-    expr: min_over_time(vpub_child_count{disable_alarm!='true',network="testnet"}[5m]) < 3
+    expr: |
+      min_over_time(vpub_child_count{disable_alarm!='true',network="testnet"}[5m]) < 3
+      or
+      sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
+      or
+      sum by (instance) (increase(vpub_visor_crit_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
     for: 30s
     labels:
       alertEvent: vpub:visor:child_missing:testnet
@@ -61,8 +72,8 @@ rules:
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
-      summary: 'vpub: visor child 누락 ({{ $value }}/3)'
-      description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
+      summary: 'vpub: visor child 문제 (count<3 또는 restart loop 또는 CRIT)'
+      description: '[testnet] {{ $labels.instance }} visor child 비정상. 운영 점검.'
   - alert: VpubLogStale
     expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
     for: 2m
@@ -99,52 +110,7 @@ rules:
     annotations:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
       description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
-  # R-022b: visor child restart loop 잡기 — 5s cycle 이라 vpub_child_count sampling 으로는 안 보임.
-  - alert: VpubVisorChildRestartLoop
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
-    for: 1m
-    labels:
-      alertEvent: vpub:visor:child_restart_loop
-      alertLevel: critical
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub: visor child restart loop ({{ $value }} restarts/5m)'
-      description: '[mainnet] {{ $labels.instance }} visor 가 child 를 5분에 {{ $value }}회 restart — version skew / spawn 실패 의심. journalctl -u validator-publisher 확인.'
-  - alert: VpubVisorChildRestartLoopTestnet
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
-    for: 1m
-    labels:
-      alertEvent: vpub:visor:child_restart_loop:testnet
-      alertLevel: low
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub: visor child restart loop ({{ $value }} restarts/5m)'
-      description: '[testnet] {{ $labels.instance }} visor restart loop.'
-  - alert: VpubVisorCrit
-    expr: increase(vpub_visor_crit_total{disable_alarm!='true',network!="testnet"}[5m]) > 0
-    for: 1m
-    labels:
-      alertEvent: vpub:visor:crit
-      alertLevel: critical
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub: visor 자체 CRIT 로그 발생 ({{ $value }}건/5m)'
-      description: '[mainnet] {{ $labels.instance }} visor process 가 CRIT/ERROR 라인 출력 — managed process exit / visor run failed 등. 즉시 진단.'
-  - alert: VpubVisorCritTestnet
-    expr: increase(vpub_visor_crit_total{disable_alarm!='true',network="testnet"}[5m]) > 0
-    for: 1m
-    labels:
-      alertEvent: vpub:visor:crit:testnet
-      alertLevel: low
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub: visor CRIT 로그 ({{ $value }}건/5m)'
-      description: '[testnet] visor CRIT — 진단.'
+  # R-022c (2026-05-25): 별도 알람 4개 (VpubVisorChildRestartLoop{,Testnet} + VpubVisorCrit{,Testnet}) 폐기.
+  # monitoring alarmer 의 subscription DB 에 새 alertEvent 등록 안 됨 → dispatch silently dropped.
+  # 시그널은 VpubChildMissing{,Testnet} expr 의 OR 통합으로 흡수 (위 alert 참조).
+  # 메트릭 (vpub_visor_child_restart_total / vpub_visor_crit_total) 는 그대로 — 디버깅 valuable.

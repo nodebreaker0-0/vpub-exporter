@@ -205,6 +205,88 @@
 - [x] **추가 발견 (R-019b, 2026-05-24)** — mainnet 환경 차이 3건 식별 (사용자 보고): ubuntu homedir / 7 RPC / 로그량 ~10× testnet. 코드 변경 없이 systemd drop-in + env.mainnet.example + R-005 실측 절차 + 부하 측정 스크립트로 흡수.
 - [x] **추가 발견 (R-017b, 2026-05-24)** — testnet `VpubBridgeStaleVoteLongTestnet` 임계 6h → 7d (`> 604800`). testnet 입금 트래픽 0건 영구 false-positive 차단. mainnet `VpubBridgeStaleVoteLong` (critical) 은 6h 그대로 — mainnet 가동 후 vote 빈도 실측 후 R-017c 로 재조정 예정.
 - [ ] **R-017c PENDING** — mainnet 가동 후 24h~7d 동안 `vpub_bridge_last_vote_success_unix` 의 갱신 빈도 (inter-vote interval) 분포 측정. p99 의 2~3× 값을 `VpubBridgeStaleVoteLong` 임계로 확정. 측정 명령: `bash scripts/mainnet_burst_check.sh` 결과 + Prometheus query `histogram_quantile(0.99, rate(...))`.
+- [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
+
+---
+
+## R-020 — mainnet 일시 silence + alertLevel 정책 변경 (HF L1 upgrade 대기)
+
+**Trigger**: HF Telegram announce (2026-05-24) — "The mainnet validator publisher is live. The bridge voter and reference oracle publisher are currently disabled pending the next L1 network upgrade. The outcome deploy news feed should be operational on mainnet."
+
+**Decision A — 5 룰 임계 일시 silence**:
+
+| 룰 | 원래 임계 | 새 임계 (30d) | 의미 |
+|---|---|---|---|
+| VpubBridgeStaleVote | `> 3600` (1h) | `> 2592000` | bridge_voter disabled — `last_vote_success_unix` 영원히 stale |
+| VpubBridgeStaleVoteLong | `> 21600` (6h) | `> 2592000` | 동상 + alertLevel critical→high |
+| VpubBridgeStateStuck | `delta(...[5m]) == 0` | `delta(...[30d]) == 0` | bridge state.json mtime 영구 정체 |
+| VpubOracleStaleVote | `> 300` (5m) | `> 2592000` | reference_oracle disabled — `last_vote_success_unix` 영원히 stale |
+| VpubOracleStaleVoteLong | `> 1800` (30m) | `> 2592000` | 동상 + alertLevel critical→high |
+
+VpubBridgeAllFail (vote 시도 자체 없음 → counter 0 → 자동 no-fire) 와 VpubBridgeRpcMajorityDown (vpub-exporter 의 자체 RPC ping 은 publisher 와 무관 — 정상 동작) 은 변경 X.
+
+**Decision B — alertLevel 정책 변경**:
+
+mainnet critical 유지 (silent failure 3개만):
+- `VpubServiceDown` — publisher 자체 다운
+- `VpubChildMissing` — spawn manager 망가짐
+- `VpubSlackTokenInvalid` — publisher 의 모든 슬랙 알람 누락 (가장 무서움)
+
+mainnet critical → high (3개):
+- `VpubLogStaleLong`
+- `VpubBridgeStaleVoteLong` (이미 R-020 에서 silence 중이지만 어쨌든)
+- `VpubOracleStaleVoteLong`
+
+testnet 전부 high → low (7개):
+- `VpubServiceDownTestnet` / `VpubChildMissingTestnet` / `VpubLogStaleLongTestnet`
+- `VpubBridgeRpcMajorityDownTestnet` / `VpubBridgeStaleVoteLongTestnet`
+- `VpubOracleStaleVoteLongTestnet` / `VpubSlackTokenInvalidTestnet`
+
+**Rationale**:
+- testnet 알람이 ddoa-high 까지 가서 운영자 주의력 분산 — testnet 은 ddoa-low 만 충분
+- mainnet critical = PagerDuty 호출 = 실제 운영자 콜아웃. silent failure 3개 외에는 PagerDuty 가치 부족 (high 채널 + 운영자 자체 모니터링이면 충분)
+
+**복원 절차 (L1 upgrade 후 bridge_voter / oracle 재가동 시)**:
+
+```bash
+cd /Users/ijeseon/hl-agent/validator/vpub-exporter
+
+# 1) 임계 복원 (5 룰)
+python3 <<'PY'
+import yaml, re
+f = "monitoring/rules/hyperliquid_vpub_rule_tier1.yaml"
+restore = {
+    "VpubBridgeStaleVote":       ("expr", lambda e: re.sub(r"> 2592000\b", "> 3600", e)),
+    "VpubBridgeStaleVoteLong":   ("expr", lambda e: re.sub(r"> 2592000\b", "> 21600", e)),
+    "VpubOracleStaleVote":       ("expr", lambda e: re.sub(r"> 2592000\b", "> 300", e)),
+    "VpubOracleStaleVoteLong":   ("expr", lambda e: re.sub(r"> 2592000\b", "> 1800", e)),
+    "VpubBridgeStateStuck":      ("expr", lambda e: e.replace("[30d])", "[5m])")),
+}
+doc = yaml.safe_load(open(f))
+for r in doc["rules"]:
+    if r["alert"] in restore:
+        k, fn = restore[r["alert"]]
+        r[k] = fn(r[k])
+# alertLevel 정책은 사용자 합의 — 자동 복원 안 함. 필요 시 수동.
+class D(yaml.SafeDumper):
+    def increase_indent(self, flow=False, indentless=False): return super().increase_indent(flow, False)
+def s(d, x): return d.represent_scalar("tag:yaml.org,2002:str", x, style="|") if "\n" in x else d.represent_scalar("tag:yaml.org,2002:str", x)
+D.add_representer(str, s)
+open(f, "w").write(open(f).readlines()[0:17].__iter__().__next__() if False else open(f).read().split("rules:")[0] + "rules:\n" + yaml.dump(doc, Dumper=D, sort_keys=False, indent=2, allow_unicode=True, width=2000).split("rules:\n",1)[1])
+PY
+
+# 2) 통합본 재생성 + monitoring sync
+# (위에서 본 동일한 python 머지 스크립트)
+
+# 3) make verify + git push
+make verify
+```
+
+**Alternatives considered**:
+- 룰을 `disable_alarm='true'` 라벨로 silencing → 우리 metric 라벨 인프라가 이를 지원하려면 별도 코드 변경 필요. 일시 silence 엔 임계 변경이 더 간단.
+- 영향 룰 yaml 통째로 주석 처리 → 까먹기 쉬움. 임계 변경이 grep 으로 찾기 좋음.
+
+---
 
 ---
 

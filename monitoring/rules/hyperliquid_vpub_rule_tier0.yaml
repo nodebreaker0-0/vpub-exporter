@@ -24,21 +24,19 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: validator-publisher.service down'
-      description: '[mainnet] {{ $labels.instance }} validator-publisher.service 가
-        1분 이상 inactive — bridge/oracle vote 누락 위험.'
+      description: '[mainnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubServiceDownTestnet
     expr: vpub_service_up{disable_alarm!='true',network="testnet"} == 0
     for: 1m
     labels:
       alertEvent: vpub:service:down:testnet
-      alertLevel: high
+      alertLevel: low
       instance: '{{ $labels.instance }}'
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
       summary: 'vpub: validator-publisher.service down'
-      description: '[testnet] {{ $labels.instance }} validator-publisher.service 가
-        1분 이상 inactive — bridge/oracle vote 누락 위험.'
+      description: '[testnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubChildMissing
     expr: vpub_child_count{disable_alarm!='true',network!="testnet"} < 3
     for: 30s
@@ -50,24 +48,21 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
-      description: '[mainnet] {{ $labels.instance }} visor child 수 = {{ $value }}
-        (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
+      description: '[mainnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubChildMissingTestnet
     expr: vpub_child_count{disable_alarm!='true',network="testnet"} < 3
     for: 30s
     labels:
       alertEvent: vpub:visor:child_missing:testnet
-      alertLevel: high
+      alertLevel: low
       instance: '{{ $labels.instance }}'
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
-      description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }}
-        (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
+      description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubLogStale
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"})
-      > 300
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
     for: 2m
     labels:
       alertEvent: vpub:log:stale
@@ -77,33 +72,28 @@ rules:
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 5분+ 멈춤
-      description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상
-        갱신 없음 — hang 가능.'
+      description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
   - alert: VpubLogStaleLong
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"})
-      > 1800
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"}) > 1800
     for: 1m
     labels:
       alertEvent: vpub:log:stale_long
-      alertLevel: critical
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
-      description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 30분+
-        hang — 즉시 점검.'
-  - alert: VpubLogStaleLongTestnet
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!="visor"})
-      > 1800
-    for: 1m
-    labels:
-      alertEvent: vpub:log:stale_long:testnet
       alertLevel: high
       instance: '{{ $labels.instance }}'
       target: '{{ $labels.target }}'
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
-      description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+
-        hang — 즉시 점검.'
+      description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
+  - alert: VpubLogStaleLongTestnet
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network="testnet",component!="visor"}) > 1800
+    for: 1m
+    labels:
+      alertEvent: vpub:log:stale_long:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
+      description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'

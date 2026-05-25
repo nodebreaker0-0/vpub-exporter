@@ -173,9 +173,13 @@ The exporter co-locates with the publisher because every signal it cares about �
 | `high` | `#ddoa-high` |
 | `medium`, `low` | `#ddoa-low` |
 
-### Testnet / mainnet split
+### Testnet / mainnet split + alertLevel policy (R-020)
 
-The 6 critical rules are **mainnet-only** (`network!="testnet"` matcher). Each has a `<Name>Testnet` sibling with `alertLevel: high` so testnet still alerts on the same condition without paging anyone. Bridge-vote staleness on testnet is threshold-relaxed to 7 days because testnet deposit traffic is sparse.
+`critical` is reserved for **silent-failure** modes that the operator would never otherwise notice — exactly three rules: `VpubServiceDown`, `VpubChildMissing`, `VpubSlackTokenInvalid`. Everything else that used to be critical is now `high` (still actioned, but not paged at 3am for a wedge that auto-resolves).
+
+Testnet siblings of every alert run at `alertLevel: low` to keep `#ddoa-high` quiet — the same conditions still fire so operators have visibility without paging stress.
+
+**R-020 mainnet temporary state (2026-05-24)**: HF announced mainnet validator-publisher is live, but `bridge_voter` and `reference_oracle_publisher` are disabled until the next L1 upgrade. Five rules are silenced (threshold widened to 30d) so the disabled subsystems don't permanently fire: `VpubBridgeStaleVote{,Long}`, `VpubBridgeStateStuck`, `VpubOracleStaleVote{,Long}`. Restore procedure documented in `specs/001-vpub-exporter/research.md § R-020`.
 
 > **Slack template note.** The B-Harvest alarmer renders only the alert `summary` in Slack messages. Put timestamps, URLs, and `humanizeTimestamp` / `humanizeDuration` in `summary`; keep `description` for the Prometheus `/alerts` API.
 

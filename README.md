@@ -198,6 +198,8 @@ Testnet siblings of every alert run at `alertLevel: low` to keep `#ddoa-high` qu
 **R-020 mainnet temporary state (2026-05-24)**: HF announced mainnet validator-publisher is live, but `bridge_voter` and `reference_oracle_publisher` are disabled until the next L1 upgrade. Five rules are silenced (threshold widened to 30d) so the disabled subsystems don't permanently fire: `VpubBridgeStaleVote{,Long}`, `VpubBridgeStateStuck`, `VpubOracleStaleVote{,Long}`. Restore procedure documented in `specs/001-vpub-exporter/research.md § R-020`.
 
 > **Slack template note.** The B-Harvest alarmer renders only the alert `summary` in Slack messages. Put timestamps, URLs, and `humanizeTimestamp` / `humanizeDuration` in `summary`; keep `description` for the Prometheus `/alerts` API.
+>
+> **Silence note (R-023).** Time-based silences (`disabled until <ts>` button) leave a stale `agent_mark` in the alarmer DB after auto-expiry, which causes the next firing of the same `(instance, alertEvent)` to be silently dropped from Slack. Workaround: use the **"Start" button** (manual unsilence) instead of waiting for time expiry. If alarms in prometheus `/api/v1/alerts` are firing but missing from Slack, ping the monitoring repo operator to clear stale `agent_mark` rows.
 
 ### Examples
 

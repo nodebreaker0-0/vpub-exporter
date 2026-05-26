@@ -210,6 +210,7 @@
 - [x] **R-022 (2026-05-25, mainnet 운영 발견)** — visor 가 child 를 5초 cycle 로 restart loop 도는 동안 우리 30s scrape sampling 이 child_count=3 만 잡아서 `VpubChildMissing` critical 알람 누락. 본 문서 § R-022 참조. 두 갈래 fix 적용:
   - R-022a: 룰만 정정 — `min_over_time(vpub_child_count[5m]) < 3` 으로 5분 window 안 dip 한 번이라도 잡음
   - R-022b: 신규 collector `visor_log` — `vpub_visor_child_restart_total{component=...}` + `vpub_visor_crit_total` counter. 새 룰 4건 (`VpubVisorChildRestartLoop{,Testnet}` + `VpubVisorCrit{,Testnet}`).
+- [x] **R-023 (2026-05-26, monitoring alarmer 운영 발견)** — vo_slack_bot 의 silence ("disabled until") 자동 만료 시 alarmer DB 의 `agent_mark` row 가 안 지워짐 → 같은 instance+alertEvent 의 후속 firing 이 silence 인식되어 슬랙 미dispatch. 본 문서 § R-023 참조.
 - [ ] **R-021 PENDING (2026-05-25, HF 답신)** — bridge/oracle 가 L1 upgrade 후 fully automatic → jail 위험. oracle 임계 5m/30m → 1m/5m, bridge 임계 1h/6h → 30m/2h, disagreement 임계 [15m]/5 → [5m]/≥2. 본 문서 § R-021 참조. L1 upgrade trigger 시 R-020 복원과 한 사이클로 적용.
 - [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
 
@@ -355,6 +356,46 @@ make verify
 2026-05-25T07:18:32 CRIT  visor: critical error visor run failed error=Invalid cross-device link (os error 18)
 ```
 모두 unit test `internal/collectors/visor_log_test.go` 의 fixture 로 인입됨.
+
+---
+
+## R-023 — vo_slack_bot silence agent_mark 자동 복귀 버그 (2026-05-26, monitoring alarmer)
+
+**Source**: ddoa-critical 채널 Jinu Ahn (monitoring 운영자) thread (2026-05-26 09:04~09:18 KST). 사용자가 "분명 울려야 할 것들이 안 울리고 있다" 보고 → DB 진단.
+
+**증상**:
+- prom 에서 vpub 알람 firing 정상 (`/api/v1/alerts` 다수 firing 상태)
+- 옛 alertEvent (`vpub:service:down`, `vpub:visor:child_missing`) 의 critical 만 ddoa-critical 도착
+- 다른 alertEvent (`vpub:bridge:stale_vote`, `vpub:log:stale`, `vpub:oracle:stale_vote`, `vpub:binary:child:download_failed` 등) 의 high/low 가 슬랙 채널 미도착
+
+**근본 원인** (Jinu 진단):
+
+```
+1. 운영자가 slack 채널에서 알람의 "Snooze" 또는 "disabled until <ts>" 버튼 누름
+2. alarmer DB 의 alerts 테이블에 row 추가:
+   - mark_end = <ts>  (silence 만료 시각)
+   - agent_mark = 1   (이 알람은 silence 처리됨 플래그)
+3. mark_end 시각 도달 → 알람 표시 :construction: → :large_green_circle: 변경
+4. BUG: agent_mark row 는 자동 삭제 안 됨 → DB 에 stale 로 남음
+5. 같은 instance + alertEvent 의 후속 firing 발생
+   → alarmer 가 DB 에서 agent_mark=1 발견 → "silence 처리됨" 인식
+   → slack dispatch 스킵
+6. 결과: 운영자 입장에선 firing 인데 슬랙 안 옴
+```
+
+**해결**:
+- (즉시) Jinu 가 DB row 수동 삭제 — `DELETE FROM ... WHERE agent_mark IS NOT NULL`
+- (워크어라운드) 슬랙 메시지의 **"Start" 버튼** 직접 누르면 agent_mark 도 정상 삭제. 시간 기반 자동 만료 회피.
+- (영구) monitoring 측 alarmer 코드 fix — 시간 만료 시 agent_mark 자동 삭제. Jinu / Sungjin 이 thread 에서 fix 의향 표명.
+
+**우리 vpub 운영 SOP**:
+1. silence 처리 시 **"Start" 버튼 우선 사용**, 시간 기반 ("disabled until ...") 회피
+2. 시간 기반 silence 한 경우 — 만료 후 "Start" 버튼 한 번 더 눌러 agent_mark 강제 정리
+3. 알람 firing 인데 슬랙 미도착 의심 시 즉시 prom `/api/v1/alerts` 직접 조회 — 알람 자체 firing 여부 확인. silence stuck 의심 시 운영자 (Jinu) ping
+
+**우리 측 작업 무관 영역 — 우리 vpub 룰 / 코드는 정상**:
+- R-022 의 새 alertEvent (`vpub:visor:child_restart_loop`, `vpub:visor:crit`) 미dispatch 의문도 같은 원인 가능 — 옛 silence 의 agent_mark 가 새 alertEvent 까지 영향 줄 수 있음
+- 다만 monitoring 측 alarmer 의 silence schema 가 (instance, alertEvent) 키 사용 → 새 alertEvent 는 영향 X 일 가능성. 그래도 운영 시 시간 기반 silence 회피가 안전.
 
 ---
 

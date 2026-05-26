@@ -110,7 +110,7 @@ rules:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
       description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
   - alert: VpubVisorChildRestartLoop
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
+    expr: sum by (instance, network) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
     for: 1m
     labels:
       alertEvent: vpub:visor:child_restart_loop
@@ -122,7 +122,7 @@ rules:
       summary: 'vpub: visor child restart loop ({{ $value }} restarts/5m)'
       description: '[mainnet] {{ $labels.instance }} visor 가 child 를 5분에 {{ $value }}회 restart — version skew / spawn 실패 의심. journalctl -u validator-publisher 확인.'
   - alert: VpubVisorChildRestartLoopTestnet
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
+    expr: sum by (instance, network) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
     for: 1m
     labels:
       alertEvent: vpub:visor:child_restart_loop:testnet

@@ -17,7 +17,7 @@
 name: hyperliquid_vpub_rule_tier1
 rules:
   - alert: VpubBridgeRpcMajorityDown
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"}) < 4
+    expr: sum by (instance, network) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"}) < 4
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum
@@ -29,7 +29,7 @@ rules:
       summary: 'vpub bridge: RPC quorum 위태 ({{ $value }}/7)'
       description: '[mainnet] 메인넷 RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)'
   - alert: VpubBridgeRpcMajorityDownTestnet
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"}) < 2
+    expr: sum by (instance, network) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"}) < 2
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum:testnet

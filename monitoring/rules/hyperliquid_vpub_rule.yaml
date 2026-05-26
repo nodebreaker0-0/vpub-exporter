@@ -100,7 +100,7 @@ rules:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
       description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
   - alert: VpubVisorChildRestartLoop
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
+    expr: sum by (instance, network) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
     for: 1m
     labels:
       alertEvent: vpub:visor:child_restart_loop
@@ -112,7 +112,7 @@ rules:
       summary: 'vpub: visor child restart loop ({{ $value }} restarts/5m)'
       description: '[mainnet] {{ $labels.instance }} visor 가 child 를 5분에 {{ $value }}회 restart — version skew / spawn 실패 의심. journalctl -u validator-publisher 확인.'
   - alert: VpubVisorChildRestartLoopTestnet
-    expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
+    expr: sum by (instance, network) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network="testnet"}[5m])) >= 5
     for: 1m
     labels:
       alertEvent: vpub:visor:child_restart_loop:testnet
@@ -148,7 +148,7 @@ rules:
       summary: 'vpub: visor CRIT 로그 ({{ $value }}건/5m)'
       description: '[testnet] visor CRIT — 진단.'
   - alert: VpubBridgeRpcMajorityDown
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"}) < 4
+    expr: sum by (instance, network) (vpub_bridge_rpc_up{disable_alarm!='true',network!="testnet"}) < 4
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum
@@ -160,7 +160,7 @@ rules:
       summary: 'vpub bridge: RPC quorum 위태 ({{ $value }}/7)'
       description: '[mainnet] 메인넷 RPC 살아있는 수 = {{ $value }} (임시 임계 ≥4 — R-005 확정 후 정정)'
   - alert: VpubBridgeRpcMajorityDownTestnet
-    expr: sum by (instance) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"}) < 2
+    expr: sum by (instance, network) (vpub_bridge_rpc_up{disable_alarm!='true',network="testnet"}) < 2
     for: 5m
     labels:
       alertEvent: vpub:bridge:rpc_quorum:testnet

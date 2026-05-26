@@ -210,7 +210,7 @@
 - [x] **R-022 (2026-05-25, mainnet 운영 발견)** — visor 가 child 를 5초 cycle 로 restart loop 도는 동안 우리 30s scrape sampling 이 child_count=3 만 잡아서 `VpubChildMissing` critical 알람 누락. 본 문서 § R-022 참조. 두 갈래 fix 적용:
   - R-022a: 룰만 정정 — `min_over_time(vpub_child_count[5m]) < 3` 으로 5분 window 안 dip 한 번이라도 잡음
   - R-022b: 신규 collector `visor_log` — `vpub_visor_child_restart_total{component=...}` + `vpub_visor_crit_total` counter. 새 룰 4건 (`VpubVisorChildRestartLoop{,Testnet}` + `VpubVisorCrit{,Testnet}`).
-- [x] **R-023 (2026-05-26, monitoring alarmer 운영 발견)** — vo_slack_bot 의 silence ("disabled until") 자동 만료 시 alarmer DB 의 `agent_mark` row 가 안 지워짐 → 같은 instance+alertEvent 의 후속 firing 이 silence 인식되어 슬랙 미dispatch. 본 문서 § R-023 참조.
+- [x] **R-023 (2026-05-26, 진짜 원인 확정)** — 진단 시리즈: mark_end stuck, instance reg, mainnet 라벨링, sum by drop 다 부수적. **진짜 원인 = `alertmanager.toml` 의 `resendDuration = "24h"`** (slack high/critical/low 라우팅 전체). 한 번 dispatch 후 24h 안 재발화. PD 는 `resendDuration = "1h"` 라 PD 만 받고 슬랙은 silent 였던 게 정확히 그 차이. Fix: `resendDuration 24h → 30m` 변경 즉시 알람 정상화. 4 룰 sum by network 정정은 별개 회귀 예방 (남겨둠). 본 문서 § R-023 참조.
 - [x] **R-018c (2026-05-26)** — R-018 의 testnet/mainnet 분기가 일부 룰만 완료. network 매처 없는 7 룰 (`VpubLogStale`, `VpubBridgeRpcDisagreement`, `VpubBridgeAllFail`, `VpubOracleStaleVote`, `VpubBridgeStateStuck`, `VpubBridgeRpcAuthError`, `VpubChildBinaryDownloadFailed`) 이 testnet 에서도 high 발화 → ddoa-high 채널. 각 룰 `network!="testnet"` 매처 추가 + `<Name>Testnet` 사본 (low) 생성. 30 → 37 룰. 사용자 정책 "testnet 전부 low" 완성.
 - [ ] **R-021 PENDING (2026-05-25, HF 답신)** — bridge/oracle 가 L1 upgrade 후 fully automatic → jail 위험. oracle 임계 5m/30m → 1m/5m, bridge 임계 1h/6h → 30m/2h, disagreement 임계 [15m]/5 → [5m]/≥2. 본 문서 § R-021 참조. L1 upgrade trigger 시 R-020 복원과 한 사이클로 적용.
 - [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
@@ -360,43 +360,144 @@ make verify
 
 ---
 
-## R-023 — vo_slack_bot silence agent_mark 자동 복귀 버그 (2026-05-26, monitoring alarmer)
+## R-023 — vpub 알람 메인넷 dispatch 안 됨 (2026-05-26, multi-layer 진단)
 
-**Source**: ddoa-critical 채널 Jinu Ahn (monitoring 운영자) thread (2026-05-26 09:04~09:18 KST). 사용자가 "분명 울려야 할 것들이 안 울리고 있다" 보고 → DB 진단.
+**Source**: ddoa-critical 채널 Jinu Ahn (monitoring 운영자) thread (2026-05-26 09:04~12:21 KST). 사용자 "분명 울려야 할 것들이 안 울리고 있다" 보고 → 단계적 진단.
 
 **증상**:
 - prom 에서 vpub 알람 firing 정상 (`/api/v1/alerts` 다수 firing 상태)
 - 옛 alertEvent (`vpub:service:down`, `vpub:visor:child_missing`) 의 critical 만 ddoa-critical 도착
-- 다른 alertEvent (`vpub:bridge:stale_vote`, `vpub:log:stale`, `vpub:oracle:stale_vote`, `vpub:binary:child:download_failed` 등) 의 high/low 가 슬랙 채널 미도착
+- 다른 mainnet alertEvent (`vpub:bridge:stale_vote`, `vpub:log:stale`, `vpub:oracle:stale_vote`, `vpub:binary:child:download_failed` 등) high/low 가 슬랙 채널 미도착
+- R-018c testnet 사본 (alertEvent `:testnet` suffix) 들은 ddoa-low 로 정상 dispatch
 
-**근본 원인** (Jinu 진단):
+**1차 진단** (Jinu, 09:04 KST, Reply 2~6):
+- DB row 의 `mark_end = 2026-05-26T18:00` silence 박혀있음 → Jinu 가 manual DELETE 로 해결.
+- 가설: silence 시간 자동 만료 시 `agent_mark` 가 자동 삭제 안 됨.
 
+**Sungjin 검증** (Reply 7~11, "잘되네요! Genius Sungjin"):
+- vo_slack_bot 의 `start` 명령이 agent_mark 도 정리. 자동 회복 후에도 manual start 명령으로 cleanup 가능.
+- 즉 **1차 진단 만으로는 stuck 설명 불가** — start 만 누르면 agent_mark 해제됨.
+
+**2차 진단 — 12:18 KST 후속 확인** (Reply 21~24):
+- 사용자 "스타트로 안먹히나" / "메인넷꺼 하나도 안오네요"
+- Jinu: **"지금은 agent_mark 안남아있어요"** (스크린샷 F0B674VFJLC) — mark 다 비어있음에도 dispatch 0건.
+- 사용자: "기존 알람들 에이전트마크도 없다는거죠?" → Jinu: "에이전트 마크 아무것도 안남아있었어요"
+- 결론: mark stuck 문제 해결됐는데도 메인넷 알람 안 옴 → 다른 원인.
+
+**3차 진단 — 진짜 원인 (Reply 27~28, 12:21 KST)**:
+- Jinu 스크린샷 F0B5X688EM9 (76.5 KB) 첨부 후 한 줄: **"메인넷 라벨링이 빠져있는 것 같습니다"**
+- 즉 알람 자체에 mainnet 식별 라벨 (`network=mainnet` 또는 alarmer 가 라우팅에 쓰는 키) 이 없어서 alarmer 가 mainnet 채널 (ddoa-high/medium) 로 routing 못 함.
+- testnet 사본 룰들은 새 alertEvent (`:testnet` suffix) 가 alarmer 매칭 키와 일치해서 dispatch 됨.
+
+**잠정 1차 의심 — `sum by (instance)` 가 network 라벨 drop**:
+- 우리 룰 중 `sum by (instance) (...)` aggregation 4 룰 — `VpubVisorChildRestartLoop` (+ Testnet), `VpubBridgeRpcMajorityDown` (+ Testnet) — 가 결과 vector 에서 instance 외 모든 라벨 제거.
+- 알람 firing 시 labels.network 가 carry 되지 않음 → alarmer 가 mainnet/testnet 판별 불가.
+- Fix 후보: `sum by (instance, network)` 로 network 도 group 보존.
+
+**다만 다른 mainnet 룰들도 dispatch 안 됨 — 추가 원인 후보**:
+- 다른 룰 (`VpubLogStale`, `VpubBridgeStaleVote` 등) 은 aggregation 없음. expr 결과에 network=mainnet carry 정상이어야 함.
+- 가능성 a) monitoring parser 가 알람 → alarmer DB 변환 시 룰 labels 에 명시되지 않은 라벨 drop. 다른 working 룰 (hlmon 등) 은 alertLevel 에 `$labels.network` 참조하는 주석이 있는 걸로 봐서 network carry 는 정상일 텐데 우리 룰 labels 섹션에 명시 안 한 게 차이일 수도.
+- 가능성 b) alarmer 의 라우팅 결정이 알람 labels.network 가 아니라 instance prefix (`Main_*` vs `Test_*`) 기반인데, 우리 룰 labels.instance 가 template `'{{ $labels.instance }}'` 으로 inject 되면서 어떤 path 에서 빈 값이 되거나 잘못된 키가 됨.
+- 가능성 c) 알람 자체에는 network=mainnet 이 있는데 alarmer DB schema 의 별도 mainnet flag 칼럼이 비어있음 — Reply 28 의 "라벨링 빠짐" 이 DB 의미일 수 있음.
+
+**검증 절차 — 사용자/운영자 측에서 즉시 가능**:
+
+1. prom 알람 labels 직접 확인:
+   ```bash
+   curl -s 'http://monitor.bharvest.io:9090/api/v1/alerts' \
+     | jq '[.data.alerts[]
+            | select(.labels.alertname | startswith("Vpub"))
+            | {alert: .labels.alertname,
+               instance: .labels.instance,
+               network: .labels.network,
+               alertEvent: .labels.alertEvent,
+               alertLevel: .labels.alertLevel}]'
+   ```
+   - 각 row 의 `network` 가 `null` → 우리 룰 측 fix 필요 (가능성 a or `sum by` drop)
+   - 각 row 의 `network` 가 `"mainnet"` → alarmer / parser DB 측 fix 필요 (가능성 b/c)
+
+2. Jinu Reply 27 스크린샷 (F0B5X688EM9) 확인 — 그게 prom alerts UI 인지 alarmer DB row 인지에 따라 가능성 a vs c 결정.
+
+**Fix 후보**:
+- (cowork 측, 항상 안전) 모든 룰 labels 섹션에 `network: '{{ $labels.network }}'` 명시 추가. 룰의 labels 가 알람 labels 에 명시적으로 inject 되므로 parser / alarmer 가 어떤 경로로 읽든 network 가 보장됨.
+- (cowork 측, sum by 룰 4 개) `sum by (instance)` → `sum by (instance, network)` 로 변경. network carry 보장.
+- (운영자 측, optional) parser 가 알람 labels 외 별도 라벨 require 한다면 alarmer 코드 / DB schema 확인.
+
+**과거 PR 과의 차이 메모** (사용자 코멘트 "이전 모니터링 룰 pr 에서는 잘됬었는데"):
+- R-018c 전: mainnet/testnet 통합 룰. expr 에 network matcher 없음. alertEvent 단일.
+- R-018c 후: mainnet 룰 expr `network!="testnet"` + testnet 사본 룰 (`<Name>Testnet`, alertEvent `:testnet` suffix). labels 섹션 변화 X.
+- `sum by (instance)` 자체는 R-018c 전부터 있었음. 만약 옛 PR 에서 그 룰들이 잘 됐다면 `sum by drop` 단독은 원인 아닐 가능성. alarmer 가 옛 룰의 단일 alertEvent + instance prefix 만으로 routing 했었을 수 있음. R-018c 의 alertEvent 분리 자체가 alarmer 매칭 표를 깨뜨렸을 가능성도 의심.
+
+**검증 #1 결과** (`curl /api/v1/alerts | jq .labels.network`, 2026-05-26 13:00 KST 경):
+- 21개 vpub 알람 중 **20개 network 라벨 정상 carry** (mainnet 13 + testnet 7)
+- **1개만 `null`** = `VpubVisorChildRestartLoop` — `sum by (instance)` aggregation 으로 network drop
+- 결론: Jinu Reply 28 "메인넷 라벨링 빠짐" 진단은 prom 단계 의미는 아님. alarmer DB / output 단계 이슈 추정. 단 그 시점 mainnet 알람 0건 dispatch 라는 사실은 진단 trigger 로 유효.
+
+**검증 #2 — alertmanager.toml 라우팅 (monitoring repo)**:
+- `targetAlertLevels` only routing. `filters` 비어있음.
+- critical → PD apiKey + ddoa-critical Slack 둘 다
+- high → ddoa-high Slack
+- medium/low → ddoa-low Slack
+- network 라벨은 라우팅에 무관
+
+**Fix 적용**:
+- cowork 측 commit 8efd7d6, monitoring 측 commit 4b6ce41 — `VpubVisorChildRestartLoop` + Testnet + `VpubBridgeRpcMajorityDown` + Testnet 4 룰 `sum by (instance)` → `sum by (instance, network)`
+- monitoring repo PR merge 후 prom rule reload
+
+**Fix 후 dispatch 결과 (2026-05-26 14:39~14:45 KST)**:
+- ddoa-critical: VpubVisorChildRestartLoop ✅
+- ddoa-high (mainnet): VpubBridgeStaleVote, VpubLogStale × 2, VpubLogStaleLong × 2, VpubBridgeStateStuck, VpubOracleStaleVote, VpubBridgeStaleVoteLong, **VpubOracleStaleVoteLong**, **VpubVisorCrit** 모두 ✅
+- ddoa-low (testnet): VpubLogStaleTestnet × 4, VpubLogStaleLongTestnet × 2, VpubOracleStaleVoteTestnet, VpubOracleStaleVoteLongTestnet, VpubBridgeStateStuckTestnet, VpubChildBinaryDownloadFailedTestnet × 3 ✅
+
+→ mainnet/testnet 알람 dispatch 일부 정상화. 단 그 시점 cowork 측 fix 적용 + monitoring repo merge 와 동시에 사용자가 alarmer 설정 변경한 게 진짜 trigger.
+
+**진짜 원인 확정 (2026-05-26 14:45+ KST, 사용자 실측)**:
+
+`monitoring/config/alarmer/alertmanager.toml` 의 모든 `[[slacks]]` 블록 라우팅:
+```toml
+[[slacks]]
+targetAlertLevels = ["high"]
+resendDuration = "24h"  ← 한 번 dispatch 후 24h dedup
 ```
-1. 운영자가 slack 채널에서 알람의 "Snooze" 또는 "disabled until <ts>" 버튼 누름
-2. alarmer DB 의 alerts 테이블에 row 추가:
-   - mark_end = <ts>  (silence 만료 시각)
-   - agent_mark = 1   (이 알람은 silence 처리됨 플래그)
-3. mark_end 시각 도달 → 알람 표시 :construction: → :large_green_circle: 변경
-4. BUG: agent_mark row 는 자동 삭제 안 됨 → DB 에 stale 로 남음
-5. 같은 instance + alertEvent 의 후속 firing 발생
-   → alarmer 가 DB 에서 agent_mark=1 발견 → "silence 처리됨" 인식
-   → slack dispatch 스킵
-6. 결과: 운영자 입장에선 firing 인데 슬랙 안 옴
+
+vs PagerDuty:
+```toml
+[[pagerdutys]]
+targetAlertLevels = ["critical"]
+resendDuration = "1h"   ← 1h 마다 재전송
 ```
 
-**해결**:
-- (즉시) Jinu 가 DB row 수동 삭제 — `DELETE FROM ... WHERE agent_mark IS NOT NULL`
-- (워크어라운드) 슬랙 메시지의 **"Start" 버튼** 직접 누르면 agent_mark 도 정상 삭제. 시간 기반 자동 만료 회피.
-- (영구) monitoring 측 alarmer 코드 fix — 시간 만료 시 agent_mark 자동 삭제. Jinu / Sungjin 이 thread 에서 fix 의향 표명.
+**Stuck 메커니즘**:
+1. R-020 silence (30d) 박힌 vpub 알람들이 silence 해제 후 처음 firing
+2. alarmer 가 Slack 으로 1회 dispatch → dedup window 24h 시작
+3. 그 후 24h 안에는 같은 알람 키 재발화 시 dispatch skip — Slack 안 옴
+4. PD 는 resendDuration 1h 라 같은 알람을 1h 마다 보냄 → 사용자가 PD 만 받음
+5. 사용자 보고: "PD 는 오는데 슬랙은 안 옴" — 정확히 이 차이의 시그널
+
+**검증**: `resendDuration = "24h"` → `"30m"` 변경 즉시 mainnet/testnet 알람 모두 정상 dispatch (14:39~14:45 KST 폭주).
+
+**진단 시리즈 회고 — 다 부수적 또는 false-lead**:
+- 1차 (Jinu): `mark_end` row stuck — 실재했으나 부수 (clear 후에도 안 옴)
+- 2차 (Sungjin 검증): `start` 명령 정상 — silence path 정상 확인
+- 3차 (Jinu Reply 28): "메인넷 라벨링 빠짐" — prom 단계 검증 결과 19/20 정상, 1개만 sum by drop. dispatch failure 의 주 원인 아님
+- cowork 측 `sum by (instance, network)` fix: 회귀 예방 차원에서 의미 있음. 다만 dispatch 정상화의 trigger 는 아님
+- 진짜 trigger = `resendDuration` 단축
+
+**별개 메모 — cowork fix 효과 잔존**:
+- 4 룰 `sum by (instance, network)` 정정 유지 (8efd7d6, 4b6ce41). 미래에 alarmer 가 network 라벨로 라우팅 분기 추가 시 안전.
+- monitoring repo 의 yaml 일부 임계 변경 (사용자 측, R-021 silence 관련) — 별개 운영 결정.
+
+**추가 발견 (별개 잠재 위험, R-024 후보)**:
+- `parser/main.go:144-153` `syncAgents` 가 기존 instance 면 `continue` — 라벨 갱신 안 함. 첫 등록 후 TOML labels 바꿔도 DB 는 stale. 다만 git log 확인 결과 `Main_hyperliquid_VPUB_apn1.toml` 첫 commit 부터 `network='mainnet'` 명시 — 본 R-023 사례엔 영향 없음. 운영 시 주의.
 
 **우리 vpub 운영 SOP**:
-1. silence 처리 시 **"Start" 버튼 우선 사용**, 시간 기반 ("disabled until ...") 회피
-2. 시간 기반 silence 한 경우 — 만료 후 "Start" 버튼 한 번 더 눌러 agent_mark 강제 정리
-3. 알람 firing 인데 슬랙 미도착 의심 시 즉시 prom `/api/v1/alerts` 직접 조회 — 알람 자체 firing 여부 확인. silence stuck 의심 시 운영자 (Jinu) ping
-
-**우리 측 작업 무관 영역 — 우리 vpub 룰 / 코드는 정상**:
-- R-022 의 새 alertEvent (`vpub:visor:child_restart_loop`, `vpub:visor:crit`) 미dispatch 의문도 같은 원인 가능 — 옛 silence 의 agent_mark 가 새 alertEvent 까지 영향 줄 수 있음
-- 다만 monitoring 측 alarmer 의 silence schema 가 (instance, alertEvent) 키 사용 → 새 alertEvent 는 영향 X 일 가능성. 그래도 운영 시 시간 기반 silence 회피가 안전.
+1. silence 처리 시 슬랙 메시지의 **"Start" 버튼 우선 사용**, 시간 기반 ("disabled until ...") 회피
+2. 알람 firing 인데 슬랙 미도착 의심 시:
+   - 1차: PD 도 안 오는지 확인 — 안 오면 prom 측 firing 자체 확인 (`/api/v1/alerts`)
+   - **2차: PD 는 오는데 Slack 만 안 오면 `alertmanager.toml` resendDuration dedup window 의심** (24h 짜리는 한 번 보낸 후 24h silent)
+   - 3차: 알람 라벨 dump (`| jq '.labels'`) 으로 network/instance 빠진 거 있는지 확인
+3. 룰에 aggregation (`sum by`, `count by`, `max by` 등) 쓸 때 반드시 라우팅 키 (`network`, `instance`, `chain`) 포함 (R-023 fix 일관성)
+4. alertmanager.toml 의 Slack resendDuration 은 30m 또는 1h 권장 (현재 30m 으로 변경됨). 24h 는 stuck risk 명확.
 
 ---
 

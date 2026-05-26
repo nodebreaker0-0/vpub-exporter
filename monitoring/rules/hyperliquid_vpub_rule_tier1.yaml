@@ -53,7 +53,7 @@ rules:
       summary: 'vpub bridge: RPC {{ $labels.name }} down'
       description: '{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분+ down'
   - alert: VpubBridgeRpcDisagreement
-    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true'}[5m]) >= 2
+    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true',network!="testnet"}[5m]) >= 2
     for: 1m
     labels:
       alertEvent: vpub:bridge:disagreement
@@ -63,7 +63,19 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: RPC disagreement 2+ (vote fail)'
-      description: 5분 내 RPC 합의 실패 {{ $value }}건 — vote 1+ 실패 가능 (4/7 quorum + ≤1 disagree 정의 위반)
+      description: '[mainnet] 5분 내 RPC 합의 실패 {{ $value }}건 — vote 1+ 실패 가능 (4/7 quorum + ≤1 disagree 정의 위반)'
+  - alert: VpubBridgeRpcDisagreementTestnet
+    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true',network="testnet"}[5m]) >= 2
+    for: 1m
+    labels:
+      alertEvent: vpub:bridge:disagreement:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: 'vpub bridge: RPC disagreement 2+ (vote fail)'
+      description: '[testnet] 5분 내 RPC 합의 실패 {{ $value }}건 — vote 1+ 실패 가능 (4/7 quorum + ≤1 disagree 정의 위반)'
   - alert: VpubBridgeStaleVote
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 1800
     for: 5m
@@ -103,9 +115,9 @@ rules:
   - alert: VpubBridgeAllFail
     expr: |
       (
-        increase(vpub_bridge_vote_total{status="ok",disable_alarm!='true'}[1h]) == 0
+        increase(vpub_bridge_vote_total{status="ok",disable_alarm!='true',network!="testnet"}[1h]) == 0
         and
-        increase(vpub_bridge_vote_total{status="fail",disable_alarm!='true'}[1h]) > 0
+        increase(vpub_bridge_vote_total{status="fail",disable_alarm!='true',network!="testnet"}[1h]) > 0
       )
     for: 5m
     labels:
@@ -116,9 +128,26 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: 1h 시도 vote 전부 실패'
-      description: '{{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패'
+      description: '[mainnet] {{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패'
+  - alert: VpubBridgeAllFailTestnet
+    expr: |
+      (
+        increase(vpub_bridge_vote_total{status="ok",disable_alarm!='true',network="testnet"}[1h]) == 0
+        and
+        increase(vpub_bridge_vote_total{status="fail",disable_alarm!='true',network="testnet"}[1h]) > 0
+      )
+    for: 5m
+    labels:
+      alertEvent: vpub:bridge:all_fail:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: 'vpub bridge: 1h 시도 vote 전부 실패'
+      description: '[testnet] {{ $labels.instance }} 최근 1h vote 시도가 있었지만 모두 실패'
   - alert: VpubOracleStaleVote
-    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true'}) > 60
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 60
     for: 5m
     labels:
       alertEvent: vpub:oracle:stale_vote
@@ -128,7 +157,19 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub oracle: 5m+ 성공 vote 없음'
-      description: '{{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)'
+      description: '[mainnet] {{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)'
+  - alert: VpubOracleStaleVoteTestnet
+    expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network="testnet"}) > 60
+    for: 5m
+    labels:
+      alertEvent: vpub:oracle:stale_vote:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: 'vpub oracle: 5m+ 성공 vote 없음'
+      description: '[testnet] {{ $labels.instance }} 마지막 reference oracle update 이후 5m+ (정상 평균 4.3s)'
   - alert: VpubOracleStaleVoteLong
     expr: (time() - vpub_oracle_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 300
     for: 1m
@@ -154,7 +195,7 @@ rules:
       summary: 'vpub oracle: 30m+ 성공 vote 없음'
       description: '[testnet] {{ $labels.instance }} reference oracle 사실상 정지 — oracle 미참여 손실'
   - alert: VpubBridgeStateStuck
-    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true'}[5m]) == 0
+    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true',network!="testnet"}[5m]) == 0
     for: 2m
     labels:
       alertEvent: vpub:bridge:state_stuck
@@ -164,9 +205,21 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: state 진행 멈춤 (5m)'
-      description: '{{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — bridge_voter 또는 Arbitrum 스캔 정지 (R-021 jail-safe)'
+      description: '[mainnet] {{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — bridge_voter 또는 Arbitrum 스캔 정지 (R-021 jail-safe)'
+  - alert: VpubBridgeStateStuckTestnet
+    expr: delta(vpub_bridge_state_last_scanned_block{disable_alarm!='true',network="testnet"}[5m]) == 0
+    for: 2m
+    labels:
+      alertEvent: vpub:bridge:state_stuck:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: 'vpub bridge: state 진행 멈춤 (5m)'
+      description: '[testnet] {{ $labels.instance }} bridge-voter-state.json last_scanned_block 5분 이상 변화 없음 — bridge_voter 또는 Arbitrum 스캔 정지 (R-021 jail-safe)'
   - alert: VpubBridgeRpcAuthError
-    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true'}[10m]) > 5
+    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true',network!="testnet"}[10m]) > 5
     for: 1m
     labels:
       alertEvent: vpub:bridge:rpc_auth_error
@@ -176,7 +229,19 @@ rules:
       chain: hyperliquid
     annotations:
       summary: 'vpub bridge: RPC {{ $labels.name }} 인증 실패 빈발'
-      description: 10분 내 RPC 401 응답 {{ $value }}회 — 키 만료/오류 의심
+      description: '[mainnet] 10분 내 RPC 401 응답 {{ $value }}회 — 키 만료/오류 의심'
+  - alert: VpubBridgeRpcAuthErrorTestnet
+    expr: increase(vpub_bridge_rpc_check_total{status="auth_error",disable_alarm!='true',network="testnet"}[10m]) > 5
+    for: 1m
+    labels:
+      alertEvent: vpub:bridge:rpc_auth_error:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: 'vpub bridge: RPC {{ $labels.name }} 인증 실패 빈발'
+      description: '[testnet] 10분 내 RPC 401 응답 {{ $value }}회 — 키 만료/오류 의심'
   - alert: VpubOutcomePendingLong
     expr: vpub_outcome_slack_msg_24h{disable_alarm!='true'} > 5
     for: 30m

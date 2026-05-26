@@ -211,6 +211,7 @@
   - R-022a: 룰만 정정 — `min_over_time(vpub_child_count[5m]) < 3` 으로 5분 window 안 dip 한 번이라도 잡음
   - R-022b: 신규 collector `visor_log` — `vpub_visor_child_restart_total{component=...}` + `vpub_visor_crit_total` counter. 새 룰 4건 (`VpubVisorChildRestartLoop{,Testnet}` + `VpubVisorCrit{,Testnet}`).
 - [x] **R-023 (2026-05-26, monitoring alarmer 운영 발견)** — vo_slack_bot 의 silence ("disabled until") 자동 만료 시 alarmer DB 의 `agent_mark` row 가 안 지워짐 → 같은 instance+alertEvent 의 후속 firing 이 silence 인식되어 슬랙 미dispatch. 본 문서 § R-023 참조.
+- [x] **R-018c (2026-05-26)** — R-018 의 testnet/mainnet 분기가 일부 룰만 완료. network 매처 없는 7 룰 (`VpubLogStale`, `VpubBridgeRpcDisagreement`, `VpubBridgeAllFail`, `VpubOracleStaleVote`, `VpubBridgeStateStuck`, `VpubBridgeRpcAuthError`, `VpubChildBinaryDownloadFailed`) 이 testnet 에서도 high 발화 → ddoa-high 채널. 각 룰 `network!="testnet"` 매처 추가 + `<Name>Testnet` 사본 (low) 생성. 30 → 37 룰. 사용자 정책 "testnet 전부 low" 완성.
 - [ ] **R-021 PENDING (2026-05-25, HF 답신)** — bridge/oracle 가 L1 upgrade 후 fully automatic → jail 위험. oracle 임계 5m/30m → 1m/5m, bridge 임계 1h/6h → 30m/2h, disagreement 임계 [15m]/5 → [5m]/≥2. 본 문서 § R-021 참조. L1 upgrade trigger 시 R-020 복원과 한 사이클로 적용.
 - [x] **R-020 (2026-05-24)** — HF announce: mainnet validator-publisher live. bridge_voter / reference_oracle_publisher 는 **다음 L1 upgrade 까지 disabled**. outcome_voter 만 가동. 영향: bridge/oracle 의존 5 룰 임계 일시 30d 로 silence + alertLevel 정책 변경 (testnet 7룰 high→low, mainnet critical 3룰→high). 복원 절차 본 문서 R-020 섹션 참조.
 

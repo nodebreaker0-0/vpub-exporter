@@ -38,8 +38,6 @@ rules:
       summary: 'vpub: validator-publisher.service down'
       description: '[testnet] {{ $labels.instance }} validator-publisher.service 가 1분 이상 inactive — bridge/oracle vote 누락 위험.'
   - alert: VpubChildMissing
-    # R-022a: visor restart loop (5s cycle) 가 30s scrape sampling 으로 missed.
-    # min_over_time 으로 5분 window 안 1회 dip 잡음. R-022b 의 restart counter 와 보완.
     expr: min_over_time(vpub_child_count{disable_alarm!='true',network!="testnet"}[5m]) < 3
     for: 30s
     labels:
@@ -64,7 +62,7 @@ rules:
       summary: 'vpub: visor child 누락 ({{ $value }}/3)'
       description: '[testnet] {{ $labels.instance }} visor child 수 = {{ $value }} (정상 3). bridge-voter / reference-oracle-publisher / outcome-voter 중 일부 hang/사망.'
   - alert: VpubLogStale
-    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor"}) > 300
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor",network!="testnet"}) > 300
     for: 2m
     labels:
       alertEvent: vpub:log:stale
@@ -74,7 +72,19 @@ rules:
       chain: hyperliquid
     annotations:
       summary: vpub {{ $labels.component }} 로그 5분+ 멈춤
-      description: '{{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
+      description: '[mainnet] {{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
+  - alert: VpubLogStaleTestnet
+    expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',component!="visor",network="testnet"}) > 300
+    for: 2m
+    labels:
+      alertEvent: vpub:log:stale:testnet
+      alertLevel: low
+      instance: '{{ $labels.instance }}'
+      target: '{{ $labels.target }}'
+      chain: hyperliquid
+    annotations:
+      summary: vpub {{ $labels.component }} 로그 5분+ 멈춤
+      description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 로그 mtime 5분 이상 갱신 없음 — hang 가능.'
   - alert: VpubLogStaleLong
     expr: (time() - vpub_component_log_mtime_seconds{disable_alarm!='true',network!="testnet",component!="visor"}) > 1800
     for: 1m
@@ -99,7 +109,6 @@ rules:
     annotations:
       summary: vpub {{ $labels.component }} 로그 30분+ 멈춤
       description: '[testnet] {{ $labels.instance }} {{ $labels.component }} 30분+ hang — 즉시 점검.'
-  # R-022b: visor child restart loop 잡기 — 5s cycle 이라 vpub_child_count sampling 으로는 안 보임.
   - alert: VpubVisorChildRestartLoop
     expr: sum by (instance) (increase(vpub_visor_child_restart_total{disable_alarm!='true',network!="testnet"}[5m])) >= 5
     for: 1m

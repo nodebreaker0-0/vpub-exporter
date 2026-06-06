@@ -3,6 +3,13 @@ on:
   push:
     tags: ['v*']
 
+# softprops/action-gh-release@v2 가 GitHub Releases 생성/업로드를 위해
+# contents:write 가 필요. 기본 GITHUB_TOKEN 은 read-only 이라 403.
+# (또는 repo Settings → Actions → General → Workflow permissions 에서
+# "Read and write" 로 바꿔도 동일 효과.)
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest

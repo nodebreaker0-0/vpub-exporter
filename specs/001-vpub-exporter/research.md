@@ -540,7 +540,7 @@ resendDuration = "1h"   ← 1h 마다 재전송
 **기타 HF README 사실 (cowork 메모)**:
 - `--tmp-dir` (기본 `/tmp`): visor 의 `<tmp-dir>/bin_N` (binary staging) + ref-oracle 의 `<tmp-dir>/reference-oracle-publisher/<COIN>/<date>`. 사용자 ps 결과의 `--tmp-dir /tmp` 인자가 이것.
 - **Log retention**: visor 가 7일 이상 된 `YYYYMMDD` 파일 자동 prune. 다른 파일은 안 건드림. ⇒ cowork 측 별도 logrotate 불필요.
-- **Mainnet RPC quorum 정확**: alchemy / quicknode / infura / chainstack / ankr / drpc + 7번째 (getblock 또는 자체 노드). 7개 명시. R-005c (HF Telegram 답신) 와 일치.
+- **Mainnet RPC quorum 정확**: alchemy / quicknode / infura / chainstack / ankr / drpc + 7번째 (operator's choice: HF 예시는 getblock; B-Harvest 운영 2026-06-06 부터 **blockpi** 로 교체 — getblock 의 latency 이상치 발견). 7개 명시. R-005c (HF Telegram 답신) 와 일치.
 - **Testnet default RPC**: alchemy / quicknode / infura 3개.
 - **Explorers**: etherscan v2 + blockscout. 최소 1, 권장 2. 한 explorer 가 RPC head 와 mismatch 시 startup fast-fail.
 - **publisher 자체 silence**: `config.json` 의 `crit_msg_ignores` 가 publisher 측 alert silence 룰 (`required_matches` 가 alert text 매칭 시 skip).

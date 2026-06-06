@@ -67,5 +67,5 @@
 - [ ] R-005 메인넷 RPC quorum 정확값 확정 (vote 시도 시 합의 라인 관찰)
 - [ ] R-006 메인넷 binary URL (HF announce)
 - [ ] mainnet 인스턴스 추가 PR (별도 agent TOML, network=mainnet)
-- [ ] `VpubBridgeRpcDisagreement` 패턴 재정 (메인넷에서 진짜 disagreement 라인 관찰 후)
+- [x] **R-013 (2026-06-06 mainnet 2.6h)** `VpubBridgeRpcDisagreement` 룰 삭제 — publisher 가 "disagreement" 단어 자체를 안 찍음. 옛 메트릭은 사실 provider HTTP error 카운터. → `vpub_bridge_rpc_provider_fail_total{name, status_code}` rename.
 - [ ] Tier 1 임계 false-positive 비율 1주 데이터 후 재평가

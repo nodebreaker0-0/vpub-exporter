@@ -102,19 +102,19 @@
 
 ---
 
-## R-006 — 메인넷 Publisher 바이너리 URL
+## R-006 — 메인넷 Publisher 바이너리 URL ✅ 확정 (2026-05-25, README v2)
 
 **질문**: HF 가 announce 할 메인넷 publisher 바이너리의 정확한 URL?
 
 **Why it matters**: FR-013 (upgrade tracking) 의 데이터 소스. testnet 은 `https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor` 확정.
 
-**확정 방법**:
-- HF announce 대기 (Discord / Telegram)
-- 또는 `https://binaries.hyperliquid.xyz/validator-publisher/visor` 추정 후 가동 직전 확인
+**확정 결과**:
+- **Mainnet**: `https://binaries.hyperliquid.xyz/validator-publisher/visor`
+- **Testnet**: `https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor`
 
-**확정 결과**: _(채움)_
+**출처**: validator-publisher README v2 (2026-05-25 HF 갱신, 메인넷 정식 지원 명시). 본문 stored: `validator/hl-validator-publisher/README.md` L9-12. 2026-05-26 fetch 재검증 byte-identical.
 
-**영향**: `VPUB_BINARY_URL` env, env.example.
+**영향**: `VPUB_BINARY_URL` env — `env.mainnet.example` 에 위 mainnet URL 그대로 사용. 추가 변경 없음.
 
 ---
 
@@ -206,7 +206,8 @@
 - [x] **추가 발견 (R-017b, 2026-05-24)** — testnet `VpubBridgeStaleVoteLongTestnet` 임계 6h → 7d (`> 604800`). testnet 입금 트래픽 0건 영구 false-positive 차단. mainnet `VpubBridgeStaleVoteLong` (critical) 은 6h 그대로 — mainnet 가동 후 vote 빈도 실측 후 R-017c 로 재조정 예정.
 - [ ] **R-017c PENDING** — mainnet 가동 후 24h~7d 동안 `vpub_bridge_last_vote_success_unix` 의 갱신 빈도 (inter-vote interval) 분포 측정. p99 의 2~3× 값을 `VpubBridgeStaleVoteLong` 임계로 확정. 측정 명령: `bash scripts/mainnet_burst_check.sh` 결과 + Prometheus query `histogram_quantile(0.99, rate(...))`.
 - [x] **R-005c (2026-05-25, HF 답신)** — mainnet bridge voter quorum = **4/7 + ≤1 disagreement per vote**. 본 문서 § R-005c 참조. `VpubBridgeRpcMajorityDown` 정확. `VpubBridgeRpcDisagreement` 임계 완화 필요 — L1 upgrade 후 R-021 와 동시 적용.
-- [ ] **R-003c PENDING** — `vpub_bridge_rpc_disagreement_total` 의 정확한 publisher 로그 라인 패턴 확정. 현재 `RPC failed` 임시는 호출 실패 카운터. L1 upgrade + 실제 disagreement 케이스 발생 시 로그 보고 정확한 정규식 백포트.
+- [x] **R-013 (2026-06-06, mainnet 2.6h 확정)** — publisher 가 "disagreement" 단어를 **절대 안 찍는다** (mainnet bridge-voter 23,233 라인 + testnet 9.7h 0건). 옛 `vpub_bridge_rpc_disagreement_total` 메트릭은 사실 `WARN ... RPC failed ... provider="X" ... status NNN` (provider HTTP error) 의 카운터였음. **메트릭 rename**: `vpub_bridge_rpc_disagreement_total` → `vpub_bridge_rpc_provider_fail_total{name, status_code}`. **알람 삭제**: `VpubBridgeRpcDisagreement{,Testnet}` (false positive 보장 — drpc 500 + chainstack 403 정상 운영 시에도 매 50초~5분에 1회 firing). 실제 vote 실패 시그널 = `vpub_bridge_vote_total{status="fail"}` + `VpubBridgeStaleVote` 로 이미 충분.
+- [x] **R-024 (2026-06-06, mainnet 2.6h 확정)** — bridge ok counter 의 정정. 옛 R-003 결정 ("scanned 라인은 cumulative summary 라 counter X, gauge 만") 은 가정 부정확. **mainnet 실측 결과: scanned 라인의 `votes_sent=N` 은 그 한 scan 의 vote 수 (cumulative 아님)**. 캡쳐 그룹 추출 → `counter.Add(N)` 이 정확. votes_sent=0 인 idle scan 은 skip (counter / last_vote 둘 다 안 갱신). oracle fail 패턴도 정정: 옛 `[45]xx response` 는 HF response status=200 인데 data "Missing price" 거대 array 인 케이스 못 잡음. **publisher CRIT 라인** (`CRIT reference_oracle_publisher: critical error failed to publish oracle action`) 이 정확한 fail signal.
 - [x] **R-022 (2026-05-25, mainnet 운영 발견)** — visor 가 child 를 5초 cycle 로 restart loop 도는 동안 우리 30s scrape sampling 이 child_count=3 만 잡아서 `VpubChildMissing` critical 알람 누락. 본 문서 § R-022 참조. 두 갈래 fix 적용:
   - R-022a: 룰만 정정 — `min_over_time(vpub_child_count[5m]) < 3` 으로 5분 window 안 dip 한 번이라도 잡음
   - R-022b: 신규 collector `visor_log` — `vpub_visor_child_restart_total{component=...}` + `vpub_visor_crit_total` counter. 새 룰 4건 (`VpubVisorChildRestartLoop{,Testnet}` + `VpubVisorCrit{,Testnet}`).
@@ -498,6 +499,71 @@ resendDuration = "1h"   ← 1h 마다 재전송
    - 3차: 알람 라벨 dump (`| jq '.labels'`) 으로 network/instance 빠진 거 있는지 확인
 3. 룰에 aggregation (`sum by`, `count by`, `max by` 등) 쓸 때 반드시 라우팅 키 (`network`, `instance`, `chain`) 포함 (R-023 fix 일관성)
 4. alertmanager.toml 의 Slack resendDuration 은 30m 또는 1h 권장 (현재 30m 으로 변경됨). 24h 는 stuck risk 명확.
+
+---
+
+## R-013 / R-024 — mainnet bridge/oracle 로그 패턴 확정 (2026-06-06, mainnet 2.6h)
+
+**Source**: 사용자 업로드 mainnet 로그 2개 (10:20~12:56 UTC, 약 2h 35m):
+- `20260606_bridge` — bridge-voter 23,233 라인
+- `20260606_reference` — reference-oracle-publisher 44,755 라인
+
+**Bridge-voter 분석**:
+
+| 카테고리 | 카운트 | 의미 |
+|---|---|---|
+| CRIT | 3 | `child_startup: ... config must contain at least one explorer endpoint` (init 실패, 3 retry 후 정상화) |
+| WARN | 224 | **전부 `RPC failed ... provider="X" ... status NNN` 만** |
+| └ drpc 500 | 188 | provider internal transient |
+| └ chainstack 403 | 35 | **`Archive, Debug and Trace requests are not available on your current plan`** — subscription 부족 |
+| └ blockscout explorer fail | 1 | `ignoring explorer: deposit block request failed` |
+| INFO scanned | 21,141 | 560 scanned 라인. `votes_sent` 분포: 0×413, 1×127, 2×18, 4×1, 35×1. 총 202 vote / 2.6h |
+| **disagree/conflict/mismatch/consensus/reject** | **0** | **publisher 가 단어 자체를 안 찍음** |
+
+→ **R-013 결론**: publisher 는 RPC 응답 합의 실패를 외부 로그에 노출 안 함. quorum 검증 (4/7 + ≤1 disagree, R-005c) 은 publisher 내부 로직에서 처리되고, 결과만 `votes_sent / votes_failed / votes_skipped` 로 노출. **mainnet 2.6h 동안 votes_failed=0 / votes_skipped=0** — 실제 합의 실패 0건.
+
+**Reference-oracle-publisher 분석**:
+
+| 카테고리 | 카운트 | 의미 |
+|---|---|---|
+| CRIT | 5 | publisher 가 직접 찍는 fail signal |
+| └ "unexpected response shape" | 2 | HF response 가 "Missing price" 거대 array (가격 데이터 부족) |
+| └ "Oracle price update too often" | 2 | **HF rate limit** |
+| └ "external perp medians unavailable" | 1 | external price source 다운 |
+| WARN | 39,764 | 거의 다 가격 부재 (non-trusted source, no trusted, missing price coin=..., etc.) |
+| **INFO "oracle action sent"** | **2,491** | **vote 성공 시그널** — 매 3.75s 1번 (R-004 testnet 4.3s 와 일치) |
+
+→ **R-024 결론**: oracle 의 vote 성공/실패 signal 명확.
+- ok = `INFO ... reference_oracle_publisher: oracle action sent`
+- fail = `CRIT ... reference_oracle_publisher: critical error failed to publish oracle action`
+
+옛 fail 패턴 (`[45]xx exchange_client response`) 은 HF response status=200 + data "Missing price" 거대 array 인 케이스 못 잡음. publisher 자체 CRIT 라인이 정확.
+
+**Bridge ok counter 정정 (R-024)**:
+- 옛 R-003 결정: "scanned 라인은 cumulative summary 라 counter 안 올리고 last_vote_success_unix gauge 만 갱신". counter `{ok}` 영구 0.
+- mainnet 실측: scanned 라인의 `votes_sent=N` 은 그 한 scan 의 vote 수 (cumulative 아님). 13:00 KST 시점 `vpub_bridge_vote_total{ok}=0` 은 실측에선 잘못 — 실제 vote ~200건이 있었어야.
+- **정정**: `scanned .* votes_sent=(\d+)` 캡쳐 → `counter.Add(N)`. votes_sent=0 (idle scan) 은 skip (counter, last_vote 둘 다 안 갱신 — idle 은 vote 성공 아님).
+
+**Provider fail rename (R-013)**:
+- 옛: `vpub_bridge_rpc_disagreement_total` (counter, no labels) — 사실 `WARN RPC failed` 카운터
+- 신규: `vpub_bridge_rpc_provider_fail_total{name, status_code}` (CounterVec)
+- 패턴: `WARN ... provider="(\w+)" ... status (\d{3})` — group 1 = name, group 2 = status code
+- 알람 `VpubBridgeRpcDisagreement{,Testnet}` 삭제. 운영 액션 없음 — provider 측 issue.
+
+**Chainstack 운영 결정**:
+- mainnet 2.6h × 5분/회 = 35 fail. plan 부족 명시 ("Archive ... not available on your current plan")
+- **사용자 plan 업그레이드 진행 중** (2026-06-06)
+
+**Drpc 운영 결정**:
+- mainnet 2.6h × 50초/회 = 188 fail (33% scan rate). plan 부족 메시지 아님 ("Temporary internal error")
+- transient internal error — retry 로 자동 복구 → vote success 영향 없음 (`votes_failed=0` 유지)
+- plan upgrade 효과 불확실. 모니터링만 (provider_fail_total 메트릭).
+
+**Code 변경 위치**:
+- `internal/config/config.go` — `defaultVoteOKPatterns` (캡쳐 그룹), `defaultProviderFailPatterns` (rename + 캡쳐 2개), `defaultOracleVoteFailPatterns` (CRIT 라인)
+- `internal/collectors/vote_logs.go` — `classifyBridge` 정정 (FindStringSubmatch + Add(N)), `bridgeDisagreeTot` → `bridgeProviderFailTot{name,status_code}`
+- `monitoring/rules/hyperliquid_vpub_rule_tier1.yaml` + `hyperliquid_vpub_rule.yaml` + `monitoring/config/rules/...` — `VpubBridgeRpcDisagreement{,Testnet}` 삭제 (룰 37 → 35)
+- `internal/collectors/vote_logs_test.go` — 새 캡쳐 group + provider_fail 라벨 검증
 
 ---
 

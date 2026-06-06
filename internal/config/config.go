@@ -74,20 +74,28 @@ type Config struct {
 	OutcomeChannel string
 
 	// Tier 1 — 로그 패턴 (env override 가능, FR-020).
-	// R-003 confirmed (2026-05-23 testnet 9.7h, 8084 oracle events / 222 bridge CRIT):
-	//   - bridge ok : scanned line w/ votes_sent>0 (cumulative — used ONLY to
-	//                 advance bridge_last_vote_success_unix; never increments counter)
+	// R-003 / R-013 / R-024 confirmed (2026-06-06 mainnet 2.6h):
+	//   - bridge ok : scanned line — capture votes_sent group, counter += N (R-024
+	//                 정정: 옛 R-003 의 "counter X" 결정은 cumulative line 가정이라
+	//                 부정확. mainnet 실측: scanned 라인 votes_sent=N 은 그 한 scan
+	//                 의 vote 수. N 추출 후 Add(N) 이 정확.)
 	//   - bridge fail: CRIT validator_publisher::bridge_voter::runner: critical error vote failed
 	//                  (개별 이벤트 라인)
-	//   - disagree (임시): WARN bridge_voter::runner: RPC failed
+	//   - bridge provider fail: WARN bridge_voter::runner: RPC failed ... provider="X" ... status NNN
+	//                  (R-013 결론: publisher 는 "disagreement" 단어 절대 안 찍음.
+	//                   옛 disagreement_total 메트릭은 사실 provider HTTP error 의
+	//                   counter 였음. provider name + status_code 라벨로 의미 명확화.)
 	//   - oracle  ok : INFO reference_oracle_publisher: oracle action sent
-	//   - oracle fail: INFO exchange_client: hyperliquid response status=[45]xx
+	//   - oracle fail: CRIT reference_oracle_publisher: critical error failed to publish oracle action
+	//                  (R-024 정정: 옛 [45]xx 패턴은 HF response status=200 인데
+	//                   data 안에 "Missing price" 거대 array 인 케이스 못 잡음.
+	//                   publisher 가 직접 찍는 CRIT 라인이 정확한 fail signal.)
 	//   - outcome WARN/CRIT: outcome-voter 모듈 path 한정 — oracle WARN price drift 제외
-	VoteOKPatterns         []string // bridge — last_vote_success_unix 트리거 (counter X)
+	VoteOKPatterns         []string // bridge — scanned, votes_sent=(\d+) capture group
 	VoteFailPatterns       []string // bridge CRIT
-	DisagreementPatterns   []string // bridge disagreement (임시)
+	ProviderFailPatterns   []string // bridge RPC provider HTTP fail (R-013 rename, was DisagreementPatterns)
 	OracleVoteOKPatterns   []string // oracle action sent
-	OracleVoteFailPatterns []string // oracle 4xx/5xx response
+	OracleVoteFailPatterns []string // oracle CRIT
 	LogWarnPatterns        []string // outcome-voter 한정
 	LogCritPatterns        []string // outcome-voter 한정
 }
@@ -117,30 +125,36 @@ func defaultBinaryTargets() map[ComponentName]string {
 	}
 }
 
-// defaultPatterns — R-003 confirmed (2026-05-23 testnet logs).
+// defaultPatterns — R-003 (testnet 2026-05-23) + R-013/R-024 (mainnet 2026-06-06).
 // Patterns are bound to the real Rust module paths emitted by validator-publisher.
 // Mainnet 가동 후 변동 시 env override (VPUB_*_PATTERNS).
+//
+// CAPTURE GROUPS (vote_logs.go classifyBridge depends on this):
+//   - VoteOKPatterns         : group 1 = votes_sent (\d+)
+//   - ProviderFailPatterns   : group 1 = provider name, group 2 = HTTP status code
+//   - 나머지 패턴은 캡쳐 그룹 없음 (boolean match only)
 var (
-	// bridge: trigger for last_vote_success_unix only (counter is intentionally
-	// not incremented — votes_sent is cumulative in the scanned line).
+	// bridge ok: scanned 라인. votes_sent 캡쳐 — counter += N (R-024).
 	defaultVoteOKPatterns = []string{
-		`validator_publisher::bridge_voter::runner: scanned .* votes_sent=[1-9]\d*`,
+		`validator_publisher::bridge_voter::runner: scanned .* votes_sent=(\d+)`,
 	}
-	// bridge: individual CRIT event per failed deposit vote (testnet 5/22: 222 events).
+	// bridge fail: individual CRIT event per failed deposit vote (testnet 5/22: 222 events).
 	defaultVoteFailPatterns = []string{
 		`CRIT\s+validator_publisher::bridge_voter::runner: critical error vote failed`,
 	}
-	// bridge: 임시 — mainnet 에서 진짜 RPC disagreement 라인 관찰 시 재정.
-	defaultDisagreementPatterns = []string{
-		`WARN\s+validator_publisher::bridge_voter::runner: RPC failed`,
+	// bridge provider HTTP fail — capture provider name + status code (R-013).
+	// mainnet 2.6h: drpc 500 (188×), chainstack 403 (35×).
+	defaultProviderFailPatterns = []string{
+		`WARN\s+validator_publisher::bridge_voter::runner: RPC failed.*provider="([^"]+)".*status (\d{3})`,
 	}
-	// oracle: 4.3s 평균 (testnet 8084건).
+	// oracle ok: testnet 4.3s 평균, mainnet 3.75s 평균.
 	defaultOracleVoteOKPatterns = []string{
 		`validator_publisher::reference_oracle_publisher: oracle action sent`,
 	}
-	// oracle: 4xx/5xx response from hyperliquid exchange client.
+	// oracle fail: CRIT 라인이 정확한 signal (R-024). 옛 [45]xx 패턴은 HF response
+	// status=200 + data "Missing price" 거대 array 케이스 못 잡았음.
 	defaultOracleVoteFailPatterns = []string{
-		`validator_publisher::hyperliquid::exchange_client: hyperliquid response status=[45]\d\d`,
+		`CRIT\s+validator_publisher::reference_oracle_publisher.*: critical error failed to publish oracle action`,
 	}
 	// outcome-voter scoped — oracle 의 price drift WARN 라인 제외.
 	defaultLogWarnPatterns = []string{
@@ -229,7 +243,13 @@ func Load(args []string, getenv func(string) string) (*Config, error) {
 
 	cfg.VoteOKPatterns = splitOrDefault(getenv("VPUB_VOTE_OK_PATTERNS"), defaultVoteOKPatterns)
 	cfg.VoteFailPatterns = splitOrDefault(getenv("VPUB_VOTE_FAIL_PATTERNS"), defaultVoteFailPatterns)
-	cfg.DisagreementPatterns = splitOrDefault(getenv("VPUB_DISAGREEMENT_PATTERNS"), defaultDisagreementPatterns)
+	// R-013 rename: VPUB_DISAGREEMENT_PATTERNS → VPUB_PROVIDER_FAIL_PATTERNS.
+	// 옛 env 도 backward compat 로 읽음 (deprecation; mainnet 가동 직후라 외부 사용자
+	// 거의 없을 것).
+	cfg.ProviderFailPatterns = splitOrDefault(
+		coalesce(getenv("VPUB_PROVIDER_FAIL_PATTERNS"), getenv("VPUB_DISAGREEMENT_PATTERNS")),
+		defaultProviderFailPatterns,
+	)
 	cfg.OracleVoteOKPatterns = splitOrDefault(getenv("VPUB_ORACLE_OK_PATTERNS"), defaultOracleVoteOKPatterns)
 	cfg.OracleVoteFailPatterns = splitOrDefault(getenv("VPUB_ORACLE_FAIL_PATTERNS"), defaultOracleVoteFailPatterns)
 	cfg.LogWarnPatterns = splitOrDefault(getenv("VPUB_LOG_WARN_PATTERNS"), defaultLogWarnPatterns)
@@ -288,6 +308,16 @@ func envKey(name string) string {
 	r = strings.ReplaceAll(r, "-", "_")
 	r = strings.ReplaceAll(r, ".", "_")
 	return r
+}
+
+// coalesce returns the first non-empty argument, or "" if all are empty.
+func coalesce(vs ...string) string {
+	for _, v := range vs {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func splitOrDefault(raw string, def []string) []string {

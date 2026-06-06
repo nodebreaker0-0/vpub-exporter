@@ -52,30 +52,17 @@ rules:
     annotations:
       summary: 'vpub bridge: RPC {{ $labels.name }} down'
       description: '{{ $labels.instance }} bridge voter 의 RPC {{ $labels.name }} 10분+ down'
-  - alert: VpubBridgeRpcDisagreement
-    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true',network!="testnet"}[5m]) >= 2
-    for: 1m
-    labels:
-      alertEvent: vpub:bridge:disagreement
-      alertLevel: high
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub bridge: RPC disagreement 2+ (vote fail)'
-      description: '[mainnet] 5분 내 RPC 합의 실패 {{ $value }}건 — vote 1+ 실패 가능 (4/7 quorum + ≤1 disagree 정의 위반)'
-  - alert: VpubBridgeRpcDisagreementTestnet
-    expr: increase(vpub_bridge_rpc_disagreement_total{disable_alarm!='true',network="testnet"}[5m]) >= 2
-    for: 1m
-    labels:
-      alertEvent: vpub:bridge:disagreement:testnet
-      alertLevel: low
-      instance: '{{ $labels.instance }}'
-      target: '{{ $labels.target }}'
-      chain: hyperliquid
-    annotations:
-      summary: 'vpub bridge: RPC disagreement 2+ (vote fail)'
-      description: '[testnet] 5분 내 RPC 합의 실패 {{ $value }}건 — vote 1+ 실패 가능 (4/7 quorum + ≤1 disagree 정의 위반)'
+  # R-013 (2026-06-06 mainnet 2.6h): VpubBridgeRpcDisagreement / +Testnet 삭제.
+  # 사유: publisher 가 "disagreement" 라는 단어를 절대 안 찍는다 (mainnet 23,233
+  # 라인 / testnet 9.7h 모두 0건). 옛 메트릭 vpub_bridge_rpc_disagreement_total
+  # 은 사실 `WARN ... RPC failed ... provider="X" ... status NNN` (= provider 측
+  # HTTP error) 의 카운터였음. drpc 500 (188×) + chainstack 403 (35×) 가 매 50초
+  # ~5분에 1회 firing → 임계 ≥2 면 false positive 보장.
+  #
+  # 신규 메트릭 = vpub_bridge_rpc_provider_fail_total{name, status_code}.
+  # 운영상 RPC provider 별 fail rate 만 추적, 직접 알람은 X (provider 측 issue
+  # 라 우리 액션 무관). 진짜 vote fail signal 은 VpubBridgeStaleVote +
+  # vpub_bridge_vote_total{status="fail"} 으로 충분.
   - alert: VpubBridgeStaleVote
     expr: (time() - vpub_bridge_last_vote_success_unix{disable_alarm!='true',network!="testnet"}) > 1800
     for: 5m

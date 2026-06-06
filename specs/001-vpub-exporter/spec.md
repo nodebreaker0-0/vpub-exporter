@@ -36,7 +36,7 @@
 
 1. **Given** bridge-voter 의 Arbitrum RPC 7개 중 4개 이상 응답, **When** 살아있는 RPC 가 4개 미만으로 5분 지속, **Then** high 알람.
 2. **Given** bridge voter 가 정상 vote 중 (mainnet — testnet 은 입금 트래픽 0건이라 적용 X), **When** 마지막 성공 vote 이후 1시간 경과, **Then** high 알람. 6시간 경과 시 critical 로 escalate.
-3. **Given** RPC 응답이 서로 disagreement (mismatch), **When** 15분 내 5건 초과, **Then** high 알람 (잘못된 vote 위험). **참고**: testnet 실로그엔 "disagreement" 라인 없음 — 임시 패턴 (`RPC failed` WARN) 으로 대용. 메인넷 가동 후 진짜 라인 관찰 시 재정 (R-013 후속).
+3. ~~RPC 응답 disagreement 알람~~ — **R-013 (2026-06-06 mainnet 2.6h 확정)** 으로 룰 삭제. publisher 가 "disagreement" 단어 자체를 안 찍음 (mainnet 23,233 라인 + testnet 9.7h 0건). 옛 임시 패턴 (`RPC failed` WARN) 은 사실 per-RPC provider HTTP 실패 카운트. 메트릭 rename → `vpub_bridge_rpc_provider_fail_total{name, status_code}` (정보용, 알람 X). 진짜 vote 실패는 (4) `votes_failed>0` + `VpubBridgeStaleVote` 로 추적.
 4. **Given** reference oracle publisher 동작 중, **When** 마지막 성공 oracle vote 이후 5분 경과 (R-004: 정상 평균 4.3초), **Then** high 알람. 30분 경과 시 critical (mainnet) / high (testnet) 로 escalate.
 5. **Given** outcome-voter 가 정상, **When** outcome_actions 채널 미검토 추정 메시지 > 5 건이 30분 지속, **Then** medium 알람 (사람 검토 적체).
 6. **Given** Slack API 가 정상 동작, **When** `auth.test` 가 5분간 ok=false, **Then** critical 알람 (mainnet) / high (testnet) — "publisher slack 알람이 모두 누락 중일 수 있음".
@@ -82,9 +82,12 @@
 #### Tier 1 — 컴포넌트 본업 (P2)
 
 - **FR-005**: System MUST bridge-voter 의 각 Arbitrum RPC (이름별) 에 대해 30초 주기 헬스체크 (`eth_blockNumber` 또는 동등) 를 수행하고 `up{name}` 게이지 + latency 히스토그램 + check_total 카운터를 노출한다. **status=401 (인증 실패) 는 별도 카운터로 분리** (실로그 관찰됨).
-- **FR-006**: System MUST bridge-voter 로그에서 vote 제출 결과 (성공/실패) 와 RPC disagreement 이벤트를 패턴 매칭으로 카운트한다. vote fail 의 정확한 카운트는 **CRIT 개별 이벤트 라인** (`vote failed for deposit`) 을 사용 (scanned 라인의 `votes_failed=N` 은 cumulative gauge 라 counter 변환 부적합).
+- **FR-006**: System MUST bridge-voter 로그에서 vote 제출 결과 (성공/실패) 와 RPC provider HTTP 실패를 패턴 매칭으로 카운트한다.
+  - **vote ok** (R-024 정정): `scanned ... votes_sent=(\d+)` 캡쳐 → `counter.Add(N)`. votes_sent=0 인 idle scan 은 skip.
+  - **vote fail**: CRIT 개별 이벤트 라인 (`vote failed for deposit`).
+  - **provider fail** (R-013 rename, was "disagreement"): `WARN ... provider="X" ... status NNN` → `vpub_bridge_rpc_provider_fail_total{name, status_code}`. publisher 가 진짜 합의 실패 라인은 안 찍음 — 이 메트릭은 provider HTTP error 만 카운트, 알람 X (provider 측 issue).
 - **FR-007**: System MUST bridge 와 reference-oracle 의 마지막 성공 vote unix timestamp 를 게이지로 노출한다.
-- **FR-008**: System MUST reference-oracle-publisher 로그에서 vote 결과 (성공/실패) 를 패턴 매칭으로 카운트한다. ok = `oracle action sent`, fail = `hyperliquid response status=[45]xx`.
+- **FR-008**: System MUST reference-oracle-publisher 로그에서 vote 결과 (성공/실패) 를 패턴 매칭으로 카운트한다. **R-024 (2026-06-06 mainnet 2.6h 정정)**: ok = `INFO ... reference_oracle_publisher: oracle action sent` (매 3.75s 1번, 평균 4.3s 와 일치), fail = `CRIT ... reference_oracle_publisher: critical error failed to publish oracle action` (publisher 가 직접 찍음). 옛 `[45]xx exchange_client response` 패턴은 HF response status=200 + data "Missing price" 거대 array 케이스 못 잡아서 폐기.
 - **FR-009**: System MUST outcome-voter 로그의 warning / critical 라인을 **outcome-voter 모듈 path 한정**으로 카운트한다 (oracle WARN price drift 폭주 제외).
 - **FR-010**: System MUST Slack `conversations.history` 로 `outcome_actions_channel` 의 최근 24h 메시지 수를 5분 주기로 게이지에 노출한다 (검토 적체 fallback 추적).
 - **FR-011**: System MUST Slack `auth.test` 를 1분 주기로 호출하고 토큰 유효성 0/1 게이지를 노출한다.

@@ -29,7 +29,13 @@ Full metric catalogue: [`specs/001-vpub-exporter/contracts/metrics.md`](specs/00
 - The publisher is already running on the same machine (`systemctl status validator-publisher` → `active`)
 - Linux amd64, dedicated host (Tokyo recommended for latency)
 - User `admin` (testnet) or `ubuntu` (mainnet) — same user that runs the publisher
-- A Slack bot token + outcome-channel ID + Arbitrum RPC URLs — reuse what the publisher's `config.json` already holds
+- A Slack bot token + `outcome_actions_channel` ID + Arbitrum RPC URLs — reuse what the publisher's `config.json` already holds. (The publisher's `errors_channel` is read directly by humans; this exporter only needs the outcome channel ID for `vpub_outcome_slack_msg_24h`.)
+
+> **Tested publisher invocation (Carl's testnet box, 2026-05-25~)**:
+> ```
+> ExecStart=/home/admin/v-publisher/visor --chain Testnet --config-path config.json --log-dir log
+> ```
+> `--log-dir log` is **relative** to the publisher's working directory — visor's own log lands at `/home/admin/v-publisher/log/YYYYMMDD`, which `VPUB_VISOR_LOG_DIR` already points to. Component logs (`bridge-voter` / `reference-oracle-publisher` / `outcome-voter`) are at `/tmp/validator-publisher/<component>/YYYYMMDD` regardless of `--log-dir` (visor default), which is why `VPUB_COMPONENT_LOG_DIR=/tmp/validator-publisher` is hardcoded and `PrivateTmp=false` is required on the publisher's systemd unit.
 
 ### Build & install
 

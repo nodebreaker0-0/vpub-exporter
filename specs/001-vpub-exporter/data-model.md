@@ -7,7 +7,7 @@
 | 필드 | 타입 | 의미 |
 |---|---|---|
 | name | enum: `visor` / `bridge-voter` / `reference-oracle-publisher` / `outcome-voter` | 컴포넌트 식별자 (메트릭 라벨로 사용) |
-| log_dir | string | 절대경로, `<VPUB_LOG_DIR>/<name>` (visor 는 그냥 `<VPUB_LOG_DIR>`) |
+| log_dir | string | R-026 (HF README 2026-06-06): 절대경로, `<VPUB_COMPONENT_LOG_DIR>/<name>/` — 모든 4 컴포넌트 동일 구조. visor 도 `<...>/visor/`. (옛 R-001 의 visor==root 가정 폐기.) |
 | latest_log_path | string | `log_dir` 안의 최신 파일 (mtime 가장 큼) |
 | latest_log_mtime | unix sec | `stat(latest_log_path).mtime` |
 

@@ -129,8 +129,8 @@ vpub_bridge_rpc_up{name="alchemy"} 1
 
 | Key | Purpose | Example |
 |---|---|---|
-| `VPUB_VISOR_LOG_DIR` | visor's own log directory (the `--log-dir` argument) | `/home/admin/v-publisher/log` (testnet) / `/home/ubuntu/v-publisher/log` (mainnet) |
-| `VPUB_COMPONENT_LOG_DIR` | root of bridge-voter / oracle / outcome-voter subdirs | `/tmp/validator-publisher` (both networks — visor hardcodes this) |
+| `VPUB_VISOR_LOG_DIR` | visor's own log subdir. R-026 (HF README 2026-06-06): `--log-dir <path>` ⇒ `<path>/visor/YYYYMMDD`. | `/home/admin/v-publisher/log/visor` (testnet) / `/home/ubuntu/v-publisher/log/visor` (mainnet) |
+| `VPUB_COMPONENT_LOG_DIR` | root of `{visor,bridge-voter,reference-oracle-publisher,outcome-voter}/` subdirs — equals the `--log-dir` value itself. (Old R-001 assumption that visor hard-codes `/tmp/validator-publisher` is the `--log-dir` *omitted* fallback only.) | `/home/admin/v-publisher/log` / `/home/ubuntu/v-publisher/log` |
 | `VPUB_BINARY_TARGETS` | per-component binary paths for Tier 2 tracking | `visor=/home/admin/v-publisher/visor,bridge-voter=...,outcome-voter=...,reference-oracle-publisher=...` |
 | `VPUB_BINARY_URL` | HF visor announce URL (`HEAD` polled for upgrade tracking) | `https://binaries.hyperliquid-testnet.xyz/validator-publisher/visor` |
 | `VPUB_BRIDGE_STATE_PATH` | bridge-voter state JSON (read-only progress signal) | `/home/admin/v-publisher/bridge-voter-testnet-state.json` |
@@ -174,8 +174,9 @@ Mainnet uses `env/vpub-exporter.env.mainnet.example` as a starting point.
 │  └────┬─────────────┘    └──┬───────────────┘    │
 │       │ writes logs         │ stats / HEAD       │
 │       ▼                     ▼                    │
-│  /home/<user>/v-publisher/        ← read-only    │
-│  /tmp/validator-publisher/        ← read-only    │
+│  /home/<user>/v-publisher/log/    ← read-only    │
+│    visor/, bridge-voter/, ...    (R-026)         │
+│  /tmp/validator-publisher/    (R-001 fallback)   │
 └───────────────────────────────────────────────────┘
 ```
 

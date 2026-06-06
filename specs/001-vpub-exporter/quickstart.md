@@ -67,11 +67,14 @@ ps --ppid $VISOR_PID -o pid,cmd
 **절차**: publisher 가 작동 중인 상태에서 컴포넌트 로그 디렉토리를 임의로 `chmod 000` (쓰기 막음) → **8분 이상** 대기 → 복원
 
 ```bash
-sudo chmod 000 /tmp/validator-publisher/bridge-voter
+# R-026 표준 path (`--log-dir log` 운영) — `~/v-publisher/log/<component>/`.
+# 옛 `/tmp/validator-publisher/...` 는 `--log-dir` 생략 시 fallback only.
+LOG_ROOT="${VPUB_COMPONENT_LOG_DIR:-/home/admin/v-publisher/log}"
+sudo chmod 000 "$LOG_ROOT/bridge-voter"
 echo "block at $(date -u)"
 sleep 480   # 5분 임계 + 2분 for + 1분 마진
 # → #ddoa-high 채널에 VpubLogStale (alertEvent vpub:log:stale) 발화 기대
-sudo chmod 755 /tmp/validator-publisher/bridge-voter
+sudo chmod 755 "$LOG_ROOT/bridge-voter"
 echo "restored at $(date -u)"
 # 복원 후 alertmanager resolve 메시지 도착 기대
 ```

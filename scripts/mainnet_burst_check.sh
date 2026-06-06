@@ -61,8 +61,13 @@ coll_dur_p95=$(curl -sG "$PROM_URL/api/v1/query" \
 
 # 4) 로그 파일 크기 (today UTC)
 today=$(date -u +%Y%m%d)
-visor_log_mb=$(sudo du -m "$USER_HOME/v-publisher/log/$today" 2>/dev/null | awk '{print $1}' || echo "n/a")
-pub_log_mb=$(sudo du -cm /tmp/validator-publisher/*/$today 2>/dev/null | tail -1 | awk '{print $1}' || echo "n/a")
+# R-026 (HF README 2026-06-06): `--log-dir log` 표준 운영 — visor + 4 child 모두 publisher home 의 log/ 안.
+visor_log_mb=$(sudo du -m "$USER_HOME/v-publisher/log/visor/$today" 2>/dev/null | awk '{print $1}' || \
+               sudo du -m "$USER_HOME/v-publisher/log/$today" 2>/dev/null | awk '{print $1}' || \
+               echo "n/a")
+pub_log_mb=$(sudo du -cm "$USER_HOME/v-publisher/log"/{bridge-voter,reference-oracle-publisher,outcome-voter}/"$today" 2>/dev/null | tail -1 | awk '{print $1}' || \
+             sudo du -cm /tmp/validator-publisher/*/"$today" 2>/dev/null | tail -1 | awk '{print $1}' || \
+             echo "n/a")
 
 # 5) RPC up 시리즈 수
 rpc_up_n=$(curl -sG "$PROM_URL/api/v1/query" \

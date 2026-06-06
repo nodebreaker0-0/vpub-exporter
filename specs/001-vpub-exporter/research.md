@@ -208,6 +208,7 @@
 - [x] **R-005c (2026-05-25, HF 답신)** — mainnet bridge voter quorum = **4/7 + ≤1 disagreement per vote**. 본 문서 § R-005c 참조. `VpubBridgeRpcMajorityDown` 정확. `VpubBridgeRpcDisagreement` 임계 완화 필요 — L1 upgrade 후 R-021 와 동시 적용.
 - [x] **R-013 (2026-06-06, mainnet 2.6h 확정)** — publisher 가 "disagreement" 단어를 **절대 안 찍는다** (mainnet bridge-voter 23,233 라인 + testnet 9.7h 0건). 옛 `vpub_bridge_rpc_disagreement_total` 메트릭은 사실 `WARN ... RPC failed ... provider="X" ... status NNN` (provider HTTP error) 의 카운터였음. **메트릭 rename**: `vpub_bridge_rpc_disagreement_total` → `vpub_bridge_rpc_provider_fail_total{name, status_code}`. **알람 삭제**: `VpubBridgeRpcDisagreement{,Testnet}` (false positive 보장 — drpc 500 + chainstack 403 정상 운영 시에도 매 50초~5분에 1회 firing). 실제 vote 실패 시그널 = `vpub_bridge_vote_total{status="fail"}` + `VpubBridgeStaleVote` 로 이미 충분.
 - [x] **R-024 (2026-06-06, mainnet 2.6h 확정)** — bridge ok counter 의 정정. 옛 R-003 결정 ("scanned 라인은 cumulative summary 라 counter X, gauge 만") 은 가정 부정확. **mainnet 실측 결과: scanned 라인의 `votes_sent=N` 은 그 한 scan 의 vote 수 (cumulative 아님)**. 캡쳐 그룹 추출 → `counter.Add(N)` 이 정확. votes_sent=0 인 idle scan 은 skip (counter / last_vote 둘 다 안 갱신). oracle fail 패턴도 정정: 옛 `[45]xx response` 는 HF response status=200 인데 data "Missing price" 거대 array 인 케이스 못 잡음. **publisher CRIT 라인** (`CRIT reference_oracle_publisher: critical error failed to publish oracle action`) 이 정확한 fail signal.
+- [x] **R-026 (2026-06-06, HF 공식 README 확인)** — `https://binaries.hyperliquid-testnet.xyz/validator-publisher/README.md` 정독으로 옛 R-001 의 핵심 가정 ("visor 가 child 로그를 hard-coded `/tmp/validator-publisher/<component>/<date>` 에 쓴다") 가 **부정확** 확인. 실제: `--log-dir <path>` **optional**, 명시 시 visor + 4 child 모두 `<path>/<component>/YYYYMMDD`. 사용자 운영 실측 `--log-dir log` (relative, publisher cwd 기준) 이라 `/home/admin(ubuntu)/v-publisher/log/{visor,bridge-voter,reference-oracle-publisher,outcome-voter}/<date>`. cowork default 값 갱신 + R-001 폐기 + 새 사실 백포트 (data-model, constitution, README, env.example). 본 문서 § R-026 참조.
 - [x] **R-025 (2026-06-06, mainnet 가동 직후 false positive 발견)** — 두 결함이 결합되어 testnet `vpub:binary:child:download_failed` 알람 false positive 발화:
   - **결함 (1)**: 새 publisher build 가 module path prefix (`validator_publisher::visor::`) 추가 — 옛 `INFO  visor:` 만 매칭하던 `VisorDownloadPattern` / `VisorChildRestartPattern` / `VisorCritPattern` 정규식 매칭 X. 새 라인 모두 누락.
   - **결함 (2)**: `logtail_poll.go drain` 의 `Match.At = time.Now()` (drain 시점 wall clock). vpub-exporter restart 시 옛 라인 re-read → `download_started_unix` 가 restart 시각으로 set → child binary mtime 과 차이 = restart-after-mtime 시간만큼 → 알람 발화.
@@ -506,6 +507,63 @@ resendDuration = "1h"   ← 1h 마다 재전송
 
 ---
 
+## R-026 — HF 공식 README 정독 (2026-06-06, R-001 정정)
+
+**Source**: `https://binaries.hyperliquid-testnet.xyz/validator-publisher/README.md` 직접 fetch.
+
+**옛 R-001 가정 (틀린 것)**:
+> visor self-log dir = `--log-dir` 인자. component log dir = visor's hard-coded `/tmp/validator-publisher`.
+
+**HF README 공식 정책**:
+- `--log-dir <path>` **optional** for Visor.
+- **명시 시** (cowork 운영 표준): visor + 4 child 모두 `<path>/<component>/YYYYMMDD`. 즉:
+  ```
+  <path>/visor/YYYYMMDD
+  <path>/bridge-voter/YYYYMMDD
+  <path>/reference-oracle-publisher/YYYYMMDD
+  <path>/outcome-voter/YYYYMMDD
+  ```
+- **생략 시**: visor 는 stdout/stderr, child 3 만 옛 hard-code `/tmp/validator-publisher/<component>/YYYYMMDD`.
+
+**사용자 운영 실측 (testnet/mainnet 모두)**:
+```
+/home/admin/v-publisher/visor --chain Testnet --config-path config.json --log-dir log
+```
+- `--log-dir log` (relative path, publisher cwd = `/home/admin/v-publisher/`)
+- 결과 layout (testnet):
+  - `/home/admin/v-publisher/log/visor/<date>`
+  - `/home/admin/v-publisher/log/bridge-voter/<date>`
+  - `/home/admin/v-publisher/log/reference-oracle-publisher/<date>`
+  - `/home/admin/v-publisher/log/outcome-voter/<date>`
+- mainnet 동일 (user=ubuntu).
+
+**기타 HF README 사실 (cowork 메모)**:
+- `--tmp-dir` (기본 `/tmp`): visor 의 `<tmp-dir>/bin_N` (binary staging) + ref-oracle 의 `<tmp-dir>/reference-oracle-publisher/<COIN>/<date>`. 사용자 ps 결과의 `--tmp-dir /tmp` 인자가 이것.
+- **Log retention**: visor 가 7일 이상 된 `YYYYMMDD` 파일 자동 prune. 다른 파일은 안 건드림. ⇒ cowork 측 별도 logrotate 불필요.
+- **Mainnet RPC quorum 정확**: alchemy / quicknode / infura / chainstack / ankr / drpc + 7번째 (getblock 또는 자체 노드). 7개 명시. R-005c (HF Telegram 답신) 와 일치.
+- **Testnet default RPC**: alchemy / quicknode / infura 3개.
+- **Explorers**: etherscan v2 + blockscout. 최소 1, 권장 2. 한 explorer 가 RPC head 와 mismatch 시 startup fast-fail.
+- **publisher 자체 silence**: `config.json` 의 `crit_msg_ignores` 가 publisher 측 alert silence 룰 (`required_matches` 가 alert text 매칭 시 skip).
+- **acked_outcome_vote_actions.json**: outcome vote review 후 skip 처리. JSON array of `{"type":"validatorL1Vote","O": ...}`. 각 outcome action 은 한 번만 vote 가능 — 중복은 slashable.
+
+**Backport 작업 (R-026 적용 범위)**:
+1. `internal/config/config.go` — Default* 상수 + 주석 정정
+2. `env/vpub-exporter.env.{example,mainnet.example}` — `VPUB_VISOR_LOG_DIR` / `VPUB_COMPONENT_LOG_DIR` 설명 갱신
+3. `specs/001-vpub-exporter/spec.md` FR-003 — log path 정책 정정
+4. `specs/001-vpub-exporter/data-model.md` — Component.log_dir 정정
+5. `.specify/memory/constitution.md` — 옛 가정 폐기 + 새 사실
+6. `README.ko.md` / `README.md` — env 표 + log layout diagram
+7. `contracts/metrics.md` — log mtime collector 의 path 설명
+8. `quickstart.md` — QS-1 명령 갱신
+
+**Cowork 측 운영 영향**:
+- 코드 동작 변화 없음 (`logmtime.go` 는 이미 `<ComponentLogDir>/<component>/` stat. ComponentLogDir 만 env 로 바꾸면 됨)
+- spec/문서만 사실 일치화 — 운영 SOP 명확화
+
+**Open**: testnet/mainnet 의 sudo systemd unit 가 `--log-dir` 명시하는지 확인. 사용자 ps 결과 보면 `--log-dir log` (visor 자체 인자). 즉 systemd Exec 에 wrapper / cd 가 publisher home 으로 이동 후 `--log-dir log` 사용. 7d prune 도 visor 가 자동.
+
+---
+
 ## R-013 / R-024 — mainnet bridge/oracle 로그 패턴 확정 (2026-06-06, mainnet 2.6h)
 
 **Source**: 사용자 업로드 mainnet 로그 2개 (10:20~12:56 UTC, 약 2h 35m):
@@ -554,14 +612,21 @@ resendDuration = "1h"   ← 1h 마다 재전송
 - 패턴: `WARN ... provider="(\w+)" ... status (\d{3})` — group 1 = name, group 2 = status code
 - 알람 `VpubBridgeRpcDisagreement{,Testnet}` 삭제. 운영 액션 없음 — provider 측 issue.
 
-**Chainstack 운영 결정**:
-- mainnet 2.6h × 5분/회 = 35 fail. plan 부족 명시 ("Archive ... not available on your current plan")
-- **사용자 plan 업그레이드 진행 중** (2026-06-06)
+**Chainstack 운영 결정 (2026-06-06 실측 확정)**:
+- 초기 mainnet 2.6h 동안 35 × 403 ("Archive ... not available on your current plan") — plan 부족 명시
+- 사용자 plan upgrade 적용 (2026-06-06 ~10:50 UTC)
+- **upgrade 후 실측**: counter 35 freeze, 1분 간격 +0, 최근 10분 로그 0건. **chainstack 완전 정상화** ✅
+- 메트릭 `vpub_bridge_rpc_provider_fail_total{name="chainstack",status_code="403"} = 35` 은 옛 누적값.
 
-**Drpc 운영 결정**:
-- mainnet 2.6h × 50초/회 = 188 fail (33% scan rate). plan 부족 메시지 아님 ("Temporary internal error")
-- transient internal error — retry 로 자동 복구 → vote success 영향 없음 (`votes_failed=0` 유지)
-- plan upgrade 효과 불확실. 모니터링만 (provider_fail_total 메트릭).
+**Drpc 운영 결정 (2026-06-06 실측)**:
+- mainnet 가동 직후 + 그 후 14h 동안 거의 균등 분포: 매 ~46초 1회, 33% scan rate
+- Error 본문 `"Temporary internal error. Please retry, trace-id: ..."` — plan 부족 메시지 X (provider internal transient)
+- vote success rate 100% (`votes_failed=0`) — 7 RPC 중 1개 fail 은 quorum 마진 안에서 흡수
+- **운영 결정**:
+  - 모니터링만 유지. drpc 가 항상 fail 한다고 가정한 quorum margin 평가.
+  - 다른 RPC 도 동시 fail 시작하면 즉시 drpc → 다른 provider (alchemy 2nd endpoint / 자체 Arbitrum 노드) 교체.
+  - drpc support ticket 권장 (33% rate of 500 on eth_getLogs single-block queries).
+- 메트릭 `vpub_bridge_rpc_provider_fail_total{name="drpc",status_code="500"}` 계속 증가 — 알람 X (정보용).
 
 **Code 변경 위치**:
 - `internal/config/config.go` — `defaultVoteOKPatterns` (캡쳐 그룹), `defaultProviderFailPatterns` (rename + 캡쳐 2개), `defaultOracleVoteFailPatterns` (CRIT 라인)

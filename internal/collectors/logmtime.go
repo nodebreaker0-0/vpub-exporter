@@ -14,11 +14,18 @@ import (
 // LogMtimeCollector exports vpub_component_log_mtime_seconds {component=...}.
 // FR-003 / data-model.md Component.latest_log_mtime.
 //
-// Layout (R-001 confirmed, 2026-05-23):
-//   - visor logs live in VisorLogDir (--log-dir argument to validator-publisher.service).
-//   - bridge-voter / reference-oracle-publisher / outcome-voter each live in
-//     ComponentLogDir/<name>/ — visor hard-codes /tmp/validator-publisher and
-//     never honors --log-dir for child components.
+// Layout (R-026 confirmed 2026-06-06 via HF README; supersedes R-001):
+//   - HF README: `--log-dir <path>` optional for visor.
+//   - `--log-dir <path>` 명시 시 (cowork 운영 표준 = `--log-dir log`):
+//       visor + 4 child 모두 `<path>/<component>/YYYYMMDD`.
+//       e.g. testnet → /home/admin/v-publisher/log/visor/<date>,
+//                       /home/admin/v-publisher/log/bridge-voter/<date>, ...
+//   - `--log-dir` 생략 시 (옛 R-001 가정 = fallback only):
+//       visor stdout/stderr, child 3 only at
+//       /tmp/validator-publisher/<component>/YYYYMMDD.
+//
+// Collector 동작 변화 없음 — VisorLogDir / ComponentLogDir env 만 표준 layout
+// 으로 default 변경.
 type LogMtimeCollector struct {
 	stat            logfs.LogDirStat
 	visorLogDir     string

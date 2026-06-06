@@ -153,8 +153,8 @@ curl -s localhost:8002/metrics | grep -E '^vpub_(service_up|child_count|componen
 
 | 변수 | 무엇 | 예시 |
 |---|---|---|
-| `VPUB_VISOR_LOG_DIR` | visor 자체 로그 디렉토리 (service 파일의 `--log-dir` 값) | `/home/admin/v-publisher/log` (testnet) / `/home/ubuntu/v-publisher/log` (mainnet) |
-| `VPUB_COMPONENT_LOG_DIR` | 3 child 컴포넌트 로그 루트 (visor default — `--log-dir` 영향 X) | `/tmp/validator-publisher` (양쪽 동일, system /tmp) |
+| `VPUB_VISOR_LOG_DIR` | visor 자체 로그 디렉토리. R-026 (HF README): `--log-dir <path>` 명시 시 `<path>/visor/YYYYMMDD` 에 기록. | `/home/admin/v-publisher/log/visor` (testnet) / `/home/ubuntu/v-publisher/log/visor` (mainnet) |
+| `VPUB_COMPONENT_LOG_DIR` | 4 component 로그 루트 = `<log-dir>` 자체. R-026: 그 아래 `visor/`, `bridge-voter/`, `reference-oracle-publisher/`, `outcome-voter/` 4 서브폴더. (옛 R-001 의 `/tmp/validator-publisher` hard-code 는 `--log-dir` 생략 시 fallback 일 뿐.) | `/home/admin/v-publisher/log` / `/home/ubuntu/v-publisher/log` |
 | `VPUB_BINARY_TARGETS` | per-component binary 경로 (R-019). `<component>=<path>,<component>=<path>` 형식 | `visor=/home/admin/v-publisher/visor,bridge-voter=/home/admin/v-publisher/bridge-voter,outcome-voter=/home/admin/v-publisher/outcome-voter,reference-oracle-publisher=/home/admin/v-publisher/reference-oracle-publisher` |
 | `VPUB_BINARY_PATH` *(legacy)* | visor binary 만 (backward compat — `VPUB_BINARY_TARGETS[visor]` 로 fold) | `/home/admin/v-publisher/visor` |
 | `VPUB_BRIDGE_STATE_PATH` | bridge-voter state JSON (read-only) | `/home/admin/v-publisher/bridge-voter-testnet-state.json` |
@@ -178,7 +178,7 @@ curl -s localhost:8002/metrics | grep -E '^vpub_(service_up|child_count|componen
 핵심 보안 설정:
 - `User=admin` / `Group=admin` (publisher 와 동일 user — log read 권한)
 - `ProtectSystem=full` / `ProtectHome=read-only` / `ReadOnlyPaths=/home/admin/v-publisher` — publisher 파일 변형 차단
-- `PrivateTmp=no` — publisher 의 `/tmp/validator-publisher/` 컴포넌트 로그 read 위해 필수
+- `PrivateTmp=no` — `--log-dir` 생략 운영 (옛 R-001 fallback) 또는 ref-oracle 의 `<tmp-dir>/reference-oracle-publisher/...` liner read 시 필수. 표준 운영 (R-026, `--log-dir log`) 에서는 직접 영향 없지만 안전망으로 유지.
 - `NoNewPrivileges` / `MemoryMax=200M` / `CPUQuota=20%` — Constitution Operational Constraints
 
 ---
@@ -235,7 +235,7 @@ prefix: 모든 메트릭은 **`vpub_*`**.
 | **어떻게** | `os.ReadDir(<dir>)` → 각 파일 `Stat()` → 가장 큰 ModTime |
 | **주기** | 30초 |
 | **코드** | [`internal/collectors/logmtime.go`](internal/collectors/logmtime.go), [`internal/logfs/logfs_os.go`](internal/logfs/logfs_os.go) |
-| **컴포넌트별 path 매핑** | visor → `$VPUB_VISOR_LOG_DIR`. 나머지 3 → `$VPUB_COMPONENT_LOG_DIR/<component>/` |
+| **컴포넌트별 path 매핑** | R-026: 4 컴포넌트 모두 `$VPUB_COMPONENT_LOG_DIR/<component>/`. 단 visor 만 별도 `$VPUB_VISOR_LOG_DIR` (== `$VPUB_COMPONENT_LOG_DIR/visor` 와 동치). HF README: `--log-dir <path>` 명시 시 `<path>/<component>/YYYYMMDD`. |
 | **운영 의미** | PromQL `time() - <metric>` 으로 staleness 계산. 컴포넌트가 hang 되면 mtime 갱신이 멈춤. 단 **visor 자체는 spawn manager 라 자체 로그 빈도 매우 낮음** — 알람에서 제외. |
 
 ### B. Tier 1 — Bridge / Oracle / Outcome / Slack
@@ -437,7 +437,7 @@ R-019b (2026-05-24 사용자 보고) — mainnet 환경 차이 3건은 모두 **
 - **expr**: `(time() - vpub_component_log_mtime_seconds{...,component!="visor"}) > 300/1800`
 - **trigger**: bridge / oracle / outcome 컴포넌트 중 하나가 5분 (또는 30분) 이상 로그 갱신 X
 - **확인**:
-  1. publisher 머신에서 직접: `ls -la /tmp/validator-publisher/<component>/$(date -u +%Y%m%d)`
+  1. publisher 머신에서 직접: `ls -la $VPUB_COMPONENT_LOG_DIR/<component>/$(date -u +%Y%m%d)` (R-026 표준: `/home/admin(ubuntu)/v-publisher/log/<component>/<date>`)
   2. mtime 이 정말 stale 이면 그 컴포넌트 hang
   3. `journalctl -u validator-publisher | grep -i <component>` — child crash 흔적
 - **참고**: `component="visor"` 는 자체 로그 빈도 낮아 제외.
@@ -565,11 +565,16 @@ R-019b (2026-05-24 사용자 보고) — mainnet 환경 차이 3건은 모두 **
 publisher 머신 (LSN-D13958 등)
 ┌─────────────────────────────────────────────────────────────┐
 │  validator-publisher.service (systemd, User=admin/ubuntu)   │
-│  └── visor                                                  │
-│      ├── bridge-voter        → /tmp/validator-publisher/    │
-│      │                          bridge-voter/YYYYMMDD       │
-│      ├── reference-oracle-publisher                         │
-│      └── outcome-voter                                      │
+│  └── visor  --log-dir log   (R-026, HF README 공식)          │
+│      ├── visor/YYYYMMDD     → ~/v-publisher/log/visor/      │
+│      ├── bridge-voter       → ~/v-publisher/log/bridge-     │
+│      │                          voter/YYYYMMDD               │
+│      ├── reference-oracle-publisher → ~/v-publisher/log/     │
+│      │                          reference-oracle-publisher/  │
+│      └── outcome-voter      → ~/v-publisher/log/outcome-    │
+│                                 voter/YYYYMMDD               │
+│      (--log-dir 생략 시 옛 fallback: child 3 만               │
+│       /tmp/validator-publisher/<component>/YYYYMMDD)         │
 │                                                             │
 │  vpub-exporter.service (systemd, same user)                 │
 │  ├── /proc/* PPID scan      ← child_count                   │
@@ -659,7 +664,7 @@ Tier 0 MVP 가동 검증:
 운영 발견 사항 (모두 백포트 완료):
 
 1. **systemd dbus** `MainPID`/`NRestarts` 는 `org.freedesktop.systemd1.Service` interface 에서만 조회 가능. `Unit` interface 로는 None 반환 — 원래 `vpub_child_count` 가 항상 0 이었던 원인. `GetUnitTypePropertiesContext("Service")` 분리 호출로 정정.
-2. **systemd unit `PrivateTmp=yes`** 가 publisher 의 `/tmp/validator-publisher/` 컴포넌트 로그 격리. **반드시 `PrivateTmp=no`** (publisher 의 `v-publisher.service.full` 도 동일 의도 명시).
+2. **systemd unit `PrivateTmp=yes`** 격리 위험. R-026 표준 (`--log-dir log`, 모든 로그 `~/v-publisher/log/...`) 운영에선 영향 없지만 `--log-dir` 생략 시 fallback path (`/tmp/validator-publisher/...`) 와 ref-oracle 의 `<tmp-dir>/reference-oracle-publisher/...` liner read 차단. **`PrivateTmp=no`** 안전망으로 유지.
 3. **publisher visor 의 robust spawn** — child kill 후 1-3초 즉시 재spawn. `VpubChildMissing` 30s 임계로 detect 불가 → "안전망 룰" 로 재정의.
 4. **`VpubLogStale`/`Long` 에 `component!="visor"` 매처** — visor 자체 로그 빈도 매우 낮아 false-positive.
 5. **`VpubBridgeStaleVote` mainnet only** — testnet 입금 트래픽 0건이라 자연 영구 발화.

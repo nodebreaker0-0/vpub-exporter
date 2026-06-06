@@ -134,8 +134,14 @@
 
 - publisher 머신은 dedicated, Tokyo region, systemd 가동, user=`admin`, WorkingDirectory `/home/admin/v-publisher/`.
 - 로그 디렉토리 (R-001 확정, 2026-05-23):
-  - visor 자체: `~/v-publisher/log/YYYYMMDD` (testnet user=admin / mainnet user=ubuntu)
-  - 3 child: **`/tmp/validator-publisher/{bridge-voter,reference-oracle-publisher,outcome-voter}/YYYYMMDD`** (`--log-dir` 영향 X — visor default 가 적용됨)
+  - R-026 (HF README 2026-06-06 정정): `--log-dir <path>` 명시 시 **visor + 4 child 모두 `<path>/<component>/YYYYMMDD`**. 사용자 운영 표준 = `--log-dir log` (cwd relative) 라 결과 경로:
+    - `~/v-publisher/log/visor/YYYYMMDD`
+    - `~/v-publisher/log/bridge-voter/YYYYMMDD`
+    - `~/v-publisher/log/reference-oracle-publisher/YYYYMMDD`
+    - `~/v-publisher/log/outcome-voter/YYYYMMDD`
+    - (testnet user=admin / mainnet user=ubuntu)
+  - `--log-dir` 생략 시 fallback: visor 는 stdout/stderr, child 3 는 `/tmp/validator-publisher/<component>/YYYYMMDD` (R-001 의 옛 가정 = 이 fallback 케이스만 해당).
+  - visor 가 7일+ 된 `YYYYMMDD` 파일 자동 prune (HF README 명시).
 - 모니터링 레포(`validator/monitoring/`)는 PR merge → parser → ansible 로 Prometheus 서버에 룰/스크레이프 자동 배포 가능 상태.
 - alertmanager 의 5종 alert_level 라우팅 (critical→PagerDuty+ddoa-critical / high→ddoa-high / medium/low→ddoa-low / disk→ddoa-disk) 은 그대로 사용.
 - Slack bot token 은 publisher config 와 동일 토큰 재사용 가능 (env 로 별도 주입, config.json 직접 파싱 X).

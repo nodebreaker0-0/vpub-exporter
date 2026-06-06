@@ -39,13 +39,20 @@ type Config struct {
 	ScrapeInterval  time.Duration
 	ShutdownTimeout time.Duration
 
-	// Tier 0 — R-001 confirmed (2026-05-23 testnet 9.7h):
-	//   visor self-log dir  = --log-dir argument (default /home/admin/v-publisher/log)
-	//   component log dir   = visor's hard-coded /tmp/validator-publisher (both networks)
-	// Mainnet runs as user=ubuntu so visor dir becomes /home/ubuntu/v-publisher/log via env.
+	// Tier 0 — R-001 / R-026 (HF 공식 README 2026-06-06 confirmed).
+	// `validator-publisher` 의 visor 가 `--log-dir <path>` 인자에 따라:
+	//   - --log-dir 명시 시 : visor 와 4 child 모두 `<path>/<component>/YYYYMMDD`
+	//     (visor 도 `<path>/visor/YYYYMMDD`. 단, 사용자 운영 실측에서는 visor
+	//      자체 라인이 `<path>/visor/<date>` 에 들어가고, root 의 `<path>/<date>`
+	//      파일은 옛 build 잔여물이거나 별개 stream.)
+	//   - --log-dir 생략 시 : visor 는 stdout/stderr, child 만
+	//     `/tmp/validator-publisher/<component>/YYYYMMDD` (visor's old hard-code).
+	// 즉 옛 R-001 ("visor hard-codes /tmp/validator-publisher" 가정) 은 사실
+	// 부정확. cowork 운영에서는 `--log-dir log` (relative, /home/admin or
+	// /home/ubuntu 의 cwd) 가 표준이므로 default 도 그에 맞춤.
 	ServiceName     string
-	VisorLogDir     string // visor's own log file directory
-	ComponentLogDir string // root of bridge-voter / reference-oracle-publisher / outcome-voter subdirs
+	VisorLogDir     string // visor's own log file directory (default: <publisher-home>/log/visor)
+	ComponentLogDir string // root of {bridge-voter,reference-oracle-publisher,outcome-voter} subdirs (default: <publisher-home>/log)
 
 	// Tier 2 — R-019: per-component binary tracking.
 	// BinaryTargets maps ComponentName → local file path. Populated from
@@ -107,8 +114,11 @@ const (
 	DefaultServiceName     = "validator-publisher.service"
 	DefaultScrapeInterval  = 30 * time.Second
 	DefaultShutdownTimeout = 10 * time.Second
-	DefaultVisorLogDir     = "/home/admin/v-publisher/log" // testnet default; mainnet uses /home/ubuntu/...
-	DefaultComponentLogDir = "/tmp/validator-publisher"    // visor hard-codes this; both networks
+	// R-026 (HF README 2026-06-06): visor 가 `--log-dir log` (relative) 로 실행되어
+	// publisher home 의 `log/visor/` 와 `log/<component>/` 둘 다 사용. Mainnet
+	// 은 user=ubuntu 이므로 env 로 override.
+	DefaultVisorLogDir     = "/home/admin/v-publisher/log/visor" // testnet default; mainnet env: /home/ubuntu/v-publisher/log/visor
+	DefaultComponentLogDir = "/home/admin/v-publisher/log"       // <log-dir> 자체 — 그 아래 <component>/ subdir
 	DefaultBinaryPath      = "/home/admin/v-publisher/visor"
 	// DefaultBinaryRoot — child binaries colocate with visor (R-019).
 	DefaultBinaryRoot = "/home/admin/v-publisher"

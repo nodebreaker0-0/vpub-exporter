@@ -51,8 +51,12 @@ publisher 의 실제 동작 (vote 성공, RPC disagreement) 은 **로그 파일 
   - testnet: RSS ≤ 100MB, CPU ≤ 5% (1 core)
   - mainnet: RSS ≤ 400MB, CPU ≤ 20% — 로그량 ~10× testnet 가정 (R-019b). MemoryMax/CPUQuota 도 systemd drop-in `mainnet.conf` 에서 상향.
   - 초과 시 design 재검토 + collection_duration_p95 측정 (SC-003 합격 여부).
-- **systemd 격리** (운영 발견 2026-05-23):
-  - `PrivateTmp=no` 필수 — publisher 의 `/tmp/validator-publisher/` 컴포넌트 로그 read 위해.
+- **systemd 격리** (운영 발견 2026-05-23, R-026 정정 2026-06-06):
+  - 사용자 운영 표준: publisher 가 `--log-dir log` (cwd relative) 로 실행 →
+    log 가 `/home/admin(ubuntu)/v-publisher/log/<component>/YYYYMMDD` 에 위치
+    (R-026 / HF 공식 README). cowork systemd unit 의 `PrivateTmp=no` 는
+    옛 R-001 fallback (`--log-dir` 생략 시 visor 가 `/tmp/validator-publisher/...`
+    사용) 대비 안전망. 표준 운영에서는 영향 없음.
   - systemd dbus property 조회 시 `MainPID`/`NRestarts` 는 `Service` interface 에서 (`GetUnitTypePropertiesContext`). `Unit` interface 로는 None 반환.
 - **Alertmanager 분기 정책**: critical 6 룰은 mainnet 한정 (`network!="testnet"` matcher). 동일 expr 의 `<Name>Testnet` 복제가 alertLevel=high 로 따로 발화 — PagerDuty 노이즈 차단.
 

@@ -23,6 +23,10 @@ const (
 	// Lines that must NOT match.
 	visorSpawnLine = `2026-05-25T07:19:16.250192 INFO  visor: spawning new process binary_path="/home/ubuntu/v-publisher/bridge-voter" height=1`
 	visorDownloadLine = `2026-05-25T07:19:16.212130 INFO  visor: downloading new binary self.binary_name="bridge-voter" binary_url="..." height=1`
+
+	// R-025: new publisher build emits `validator_publisher::visor::` module prefix.
+	visorRestartLineOracleNew = `2026-06-06T11:50:09.000000 INFO  validator_publisher::visor: restarting process binary_path="/home/ubuntu/v-publisher/reference-oracle-publisher" height=11 n_restarts=1`
+	visorCritExitedNew = `2026-06-06T11:50:15.000000 CRIT  validator_publisher::visor: critical error managed process exited unexpectedly binary_name="bridge-voter"`
 )
 
 func TestVisorLog_ChildRestartCounter(t *testing.T) {
@@ -106,6 +110,9 @@ func TestVisorLog_PatternRegression(t *testing.T) {
 		{visorCritRunFailed, false, "", true},
 		{visorSpawnLine, false, "", false},
 		{visorDownloadLine, false, "", false},
+		// R-025 new build module prefix.
+		{visorRestartLineOracleNew, true, "reference-oracle-publisher", false},
+		{visorCritExitedNew, false, "", true},
 	}
 	for _, tc := range cases {
 		isRestart := false

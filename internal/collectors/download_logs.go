@@ -37,12 +37,17 @@ type DownloadLogsCollector struct {
 
 // VisorDownloadPattern matches lines like:
 //
-//	2026-05-22T06:00:08.009784 INFO  visor: downloading new binary self.binary_name="outcome-voter" binary_url=".../outcome-voter/1" height=1
+//	old build: 2026-05-22T06:00:08.009784 INFO  visor: downloading new binary self.binary_name="outcome-voter" ...
+//	new build: 2026-06-06T11:50:04.670582 INFO  validator_publisher::visor: downloading new binary self.binary_name="outcome-voter" ...
+//
+// R-025 (2026-06-06 mainnet 가동 후 발견): 새 publisher build 가 module path
+// prefix (`validator_publisher::`) 를 명시적으로 찍는다. 옛 빌드는 target name
+// (`visor`) 만. (?:validator_publisher::)? 로 둘 다 매칭.
 //
 // Capture group 1 = component name (bridge-voter / outcome-voter / reference-oracle-publisher).
 // Visor itself never appears as self.binary_name — by design.
 var VisorDownloadPattern = regexp.MustCompile(
-	`INFO\s+visor: downloading new binary\s+self\.binary_name="([^"]+)"`,
+	`INFO\s+(?:validator_publisher::)?visor: downloading new binary\s+self\.binary_name="([^"]+)"`,
 )
 
 // validDownloadChild — guard against unknown component names slipping into

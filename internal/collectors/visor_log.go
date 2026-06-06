@@ -37,19 +37,24 @@ type VisorLogCollector struct {
 
 // VisorChildRestartPattern matches lines like:
 //
-//	2026-05-25T18:25:29.818967 INFO  visor: restarting process binary_path="/home/ubuntu/v-publisher/reference-oracle-publisher" height=1 n_restarts=14
+//	old build: 2026-05-25T18:25:29.818967 INFO  visor: restarting process binary_path="/home/ubuntu/v-publisher/reference-oracle-publisher" ...
+//	new build: 2026-06-06T11:50:04.000000 INFO  validator_publisher::visor: restarting process binary_path="..." ...
+//
+// R-025: same module-prefix change as VisorDownloadPattern.
 //
 // Capture group 1 = binary_path; we extract the final filename for the component label.
 var VisorChildRestartPattern = regexp.MustCompile(
-	`INFO\s+visor: restarting process\s+binary_path="[^"]*/([^/"]+)"`,
+	`INFO\s+(?:validator_publisher::)?visor: restarting process\s+binary_path="[^"]*/([^/"]+)"`,
 )
 
 // VisorCritPattern catches every visor-self CRIT/ERROR line. We deliberately
 // keep this broad so future bug-class lines (`critical error visor run failed`,
 // `critical error managed process exited unexpectedly`, etc.) all roll up
 // into the same counter.
+//
+// R-025: accept optional `validator_publisher::` module prefix on new builds.
 var VisorCritPattern = regexp.MustCompile(
-	`(CRIT|ERROR)\s+visor:`,
+	`(CRIT|ERROR)\s+(?:validator_publisher::)?visor:`,
 )
 
 // validRestartChild — same cardinality guard as DownloadLogsCollector.

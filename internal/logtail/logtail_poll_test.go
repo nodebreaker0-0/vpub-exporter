@@ -238,6 +238,109 @@ func TestPolling_LinePrefixNilStillEmits(t *testing.T) {
 	}
 }
 
+func TestParseLineTimestamp(t *testing.T) {
+	// R-025: Match.At must come from the line itself, not the drain wall clock.
+	// Format: 2026-06-06T11:50:04.670582 INFO ...
+	cases := []struct {
+		name string
+		line string
+		want time.Time
+		ok   bool
+	}{
+		{
+			"microseconds",
+			"2026-06-06T11:50:04.670582 INFO  validator_publisher::visor: downloading ...",
+			time.Date(2026, 6, 6, 11, 50, 4, 670582000, time.UTC),
+			true,
+		},
+		{
+			"no fractional",
+			"2026-05-26T05:51:25 INFO  visor: downloading ...",
+			time.Date(2026, 5, 26, 5, 51, 25, 0, time.UTC),
+			true,
+		},
+		{
+			"empty",
+			"",
+			time.Time{},
+			false,
+		},
+		{
+			"no timestamp prefix",
+			"INFO this is a continuation line with no timestamp",
+			time.Time{},
+			false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := ParseLineTimestamp(tc.line)
+			if ok != tc.ok {
+				t.Fatalf("ok = %v, want %v", ok, tc.ok)
+			}
+			if ok && !got.Equal(tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPolling_AtFromLineTimestamp(t *testing.T) {
+	// R-025: drain should set Match.At to the parsed line timestamp, not
+	// time.Now(). Test by appending a line whose timestamp is far in the past
+	// — Match.At must equal that past time, not the read wall clock.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "20260606")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fl := &fakeLatest{}
+	fl.set(path)
+	tailer := &PollingTailer{
+		LatestFileFn: fl.fn,
+		PollInterval: 20 * time.Millisecond,
+		LinePrefix:   PublisherTimestampPrefix,
+	}
+	patterns := []*regexp.Regexp{regexp.MustCompile(`downloading new binary`)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	ch, err := tailer.Subscribe(ctx, dir, patterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(60 * time.Millisecond)
+
+	// Old publisher build format.
+	line := "2026-06-06T11:50:04.670582 INFO  visor: downloading new binary self.binary_name=\"outcome-voter\" height=24\n"
+	appendLine(t, path, line)
+
+	deadline := time.Now().Add(300 * time.Millisecond)
+	var got Match
+	gotSome := false
+	for time.Now().Before(deadline) {
+		select {
+		case m, ok := <-ch:
+			if !ok {
+				t.Fatal("channel closed before match")
+			}
+			got = m
+			gotSome = true
+		case <-time.After(50 * time.Millisecond):
+		}
+		if gotSome {
+			break
+		}
+	}
+	if !gotSome {
+		t.Fatal("no match received")
+	}
+	want := time.Date(2026, 6, 6, 11, 50, 4, 670582000, time.UTC)
+	if !got.At.Equal(want) {
+		t.Errorf("Match.At = %v, want %v (line timestamp, not wall clock)", got.At, want)
+	}
+}
+
 func TestPolling_CtxCancelClosesChannel(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "20260523"), []byte(""), 0o644); err != nil {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -147,13 +148,20 @@ func (t *PollingTailer) loop(ctx context.Context, dir string, patterns []*regexp
 
 // drain reads from f at *off and emits matches. Updates *off to the byte position
 // just past the last newline that was emitted. Partial trailing line is left for next tick.
+//
+// R-025 (2026-06-06): Match.At 는 라인 자체의 timestamp 를 파싱한 값을 우선
+// 사용. parse 실패 또는 timestamp prefix 없는 라인이면 drain wall clock
+// fallback. publisher restart / vpub-exporter restart 후 옛 라인을 처음부터
+// re-read 할 때 metric 의 timestamp 가 진짜 라인 시각을 반영하도록 함
+// (이전엔 reread 시점 wall clock 으로 잘못 set 되어 download_failed 알람이
+// false positive 로 발화).
 func (t *PollingTailer) drain(ctx context.Context, f *os.File, off *int64, path string, patterns []*regexp.Regexp, out chan<- Match) int {
 	if _, err := f.Seek(*off, io.SeekStart); err != nil {
 		return 0
 	}
 	br := bufio.NewReader(f)
 	emitted := 0
-	now := time.Now()
+	fallback := time.Now()
 	for {
 		line, err := br.ReadString('\n')
 		if len(line) > 0 && err == nil {
@@ -167,10 +175,14 @@ func (t *PollingTailer) drain(ctx context.Context, f *os.File, off *int64, path 
 			if t.LinePrefix != nil && !t.LinePrefix.MatchString(stripped) {
 				continue
 			}
+			at := fallback
+			if ts, ok := ParseLineTimestamp(stripped); ok {
+				at = ts
+			}
 			for _, p := range patterns {
 				if p.MatchString(stripped) {
 					select {
-					case out <- Match{File: path, Line: stripped, Pattern: p, At: now}:
+					case out <- Match{File: path, Line: stripped, Pattern: p, At: at}:
 						emitted++
 					case <-ctx.Done():
 						return emitted
@@ -187,6 +199,32 @@ func (t *PollingTailer) drain(ctx context.Context, f *os.File, off *int64, path 
 			return emitted
 		}
 	}
+}
+
+// ParseLineTimestamp extracts the leading "YYYY-MM-DDTHH:MM:SS(.frac)?" prefix
+// from a publisher log line. publisher always emits UTC timestamps without an
+// explicit timezone suffix (e.g. `2026-06-06T11:50:04.670582`). Returns
+// (zero, false) if no valid prefix is found.
+//
+// Used by drain() to set Match.At to the actual line timestamp instead of the
+// wall clock at read time — required for the metrics that downstream alerts
+// compare against file mtimes (R-025).
+func ParseLineTimestamp(line string) (time.Time, bool) {
+	if len(line) < 19 {
+		return time.Time{}, false
+	}
+	sp := strings.IndexByte(line, ' ')
+	if sp <= 0 || sp > 32 {
+		return time.Time{}, false
+	}
+	head := line[:sp]
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05.999999", head, time.UTC); err == nil {
+		return t, true
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04:05", head, time.UTC); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }
 
 // CompilePatterns converts a list of raw regex strings to compiled regexes,

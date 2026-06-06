@@ -12,12 +12,19 @@ import (
 	"github.com/nodebreaker0-0/vpub-exporter/internal/logtail"
 )
 
-// Lines as they actually appear in /home/admin/v-publisher/log/YYYYMMDD
-// on the testnet machine (LSN-D13958, 2026-05-22 logs).
+// Lines as they actually appear in /home/admin/v-publisher/log/visor/YYYYMMDD
+// on the testnet machine (LSN-D13958). Old build (2026-05-22) used target name
+// `visor`; new build (2026-06-06 mainnet upgrade) emits the full module path
+// `validator_publisher::visor`. R-025: both must match.
 const (
+	// Old build (target=visor).
 	bridgeDownloadLine = `2026-05-22T06:00:08.038142 INFO  visor: downloading new binary self.binary_name="bridge-voter" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/bridge-voter/1" height=1`
 	outcomeDownloadLine = `2026-05-22T06:00:08.009784 INFO  visor: downloading new binary self.binary_name="outcome-voter" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/outcome-voter/2" height=2`
 	oracleDownloadLine = `2026-05-22T06:00:08.023116 INFO  visor: downloading new binary self.binary_name="reference-oracle-publisher" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/reference-oracle-publisher/1" height=1`
+	// New build (validator_publisher::visor module path, R-025).
+	bridgeDownloadLineNew = `2026-06-06T11:50:04.674145 INFO  validator_publisher::visor: downloading new binary self.binary_name="bridge-voter" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/bridge-voter/10" height=10`
+	outcomeDownloadLineNew = `2026-06-06T11:50:04.670582 INFO  validator_publisher::visor: downloading new binary self.binary_name="outcome-voter" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/outcome-voter/24" height=24`
+	oracleDownloadLineNew = `2026-06-06T11:50:04.676313 INFO  validator_publisher::visor: downloading new binary self.binary_name="reference-oracle-publisher" binary_url="https://binaries.hyperliquid-testnet.xyz/validator-publisher/reference-oracle-publisher/11" height=11`
 	// "visor" itself should never appear as self.binary_name — guard against that anyway.
 	bogusVisorLine = `2026-05-22T06:00:08.000000 INFO  visor: downloading new binary self.binary_name="visor" binary_url="..." height=1`
 	// Non-matching lines (must not affect gauges).
@@ -84,13 +91,19 @@ func TestDownloadLogs_RecordsTimestampsPerComponent(t *testing.T) {
 func TestDownloadLogs_PatternMatchesProductionLines(t *testing.T) {
 	// Belt-and-suspenders against regex drift. If HF changes the log format,
 	// this test fails fast and we re-derive the regex from fresh logs.
+	// R-025: old `INFO  visor:` AND new `INFO  validator_publisher::visor:` both match.
 	cases := []struct {
 		line string
 		want string
 	}{
+		// Old build.
 		{bridgeDownloadLine, "bridge-voter"},
 		{outcomeDownloadLine, "outcome-voter"},
 		{oracleDownloadLine, "reference-oracle-publisher"},
+		// New build (R-025).
+		{bridgeDownloadLineNew, "bridge-voter"},
+		{outcomeDownloadLineNew, "outcome-voter"},
+		{oracleDownloadLineNew, "reference-oracle-publisher"},
 	}
 	for _, tc := range cases {
 		sub := VisorDownloadPattern.FindStringSubmatch(tc.line)

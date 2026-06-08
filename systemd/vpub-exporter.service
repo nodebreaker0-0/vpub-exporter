@@ -19,32 +19,18 @@ ExecStart=/home/admin/vpub-exporter/bin/vpub-exporter \
 Restart=on-failure
 RestartSec=5s
 
-# Security — Constitution II / IV.
-NoNewPrivileges=yes
-ProtectSystem=full
-ProtectHome=read-only
-# PrivateTmp must be NO — publisher writes its 3 child component logs to
-# /tmp/validator-publisher/ (visor default), and we need to read those.
-# Mirrors publisher's own v-publisher.service.full PrivateTmp=false.
-PrivateTmp=no
-PrivateDevices=yes
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-RestrictSUIDSGID=yes
-RestrictRealtime=yes
-LockPersonality=yes
-MemoryDenyWriteExecute=yes
-SystemCallArchitectures=native
-# Make the publisher tree explicitly read-only to this unit (defense in depth).
+# Constitution II — defense in depth. publisher 디렉토리 read-only 강제.
+# /etc/vpub-exporter.env 는 mode 0600 (root+admin only).
 ReadOnlyPaths=/home/admin/v-publisher
-# /etc/vpub-exporter.env is mode 0600 — readable only to root + admin
-LimitNOFILE=65536
-LimitNPROC=512
 
-# Resource budget — constitution Operational Constraints.
-MemoryMax=200M
-CPUQuota=20%
+# File descriptor 한계 — RPC + slack + log tail 동시 open 마진.
+LimitNOFILE=65536
+
+# R-027 (2026-06-08 운영 발견): MemoryMax/CPUQuota/sandbox hardening 다수
+# 제거. Go runtime startup 메모리가 옛 MemoryMax=200M cgroup 한계 도달 →
+# fork() EAGAIN (status=203/EXEC) 반복. 다른 sandbox 옵션들도 일부 환경에서
+# binary exec 직전 EAGAIN 유발 가능. 운영 표준 = 최소 sandbox + ReadOnlyPaths.
+# (옛 hardened 형태는 README ko/en 의 "Hardened systemd alternative" 섹션 참조.)
 
 [Install]
 WantedBy=multi-user.target

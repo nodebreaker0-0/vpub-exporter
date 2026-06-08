@@ -47,16 +47,14 @@ publisher 의 실제 동작 (vote 성공, RPC disagreement) 은 **로그 파일 
 - **Co-located**: vpub-exporter 와 validator-publisher.service 는 **같은 머신**에 배치 (로그 파일 직접 접근)
 - **Port**: 8002 (aqa-publisher-exporter 8001 다음 자리)
 - **User**: 가능하면 publisher 와 동일한 systemd user (`admin` testnet / `ubuntu` mainnet) — 로그 read 권한 단순화
-- **Resource budget**:
-  - testnet: RSS ≤ 100MB, CPU ≤ 5% (1 core)
-  - mainnet: RSS ≤ 400MB, CPU ≤ 20% — 로그량 ~10× testnet 가정 (R-019b). MemoryMax/CPUQuota 도 systemd drop-in `mainnet.conf` 에서 상향.
-  - 초과 시 design 재검토 + collection_duration_p95 측정 (SC-003 합격 여부).
-- **systemd 격리** (운영 발견 2026-05-23, R-026 정정 2026-06-06):
-  - 사용자 운영 표준: publisher 가 `--log-dir log` (cwd relative) 로 실행 →
-    log 가 `/home/admin(ubuntu)/v-publisher/log/<component>/YYYYMMDD` 에 위치
-    (R-026 / HF 공식 README). cowork systemd unit 의 `PrivateTmp=no` 는
-    옛 R-001 fallback (`--log-dir` 생략 시 visor 가 `/tmp/validator-publisher/...`
-    사용) 대비 안전망. 표준 운영에서는 영향 없음.
+- **Resource budget** (R-027 정정 2026-06-08):
+  - testnet / mainnet 모두 cgroup `MemoryMax` / `CPUQuota` 적용 안 함 — 옛 testnet 200MB 한계가 v0.3.1 binary startup 메모리와 충돌 → fork EAGAIN 무한 재시작 발생.
+  - 대신 **soft constraint**: collection_duration_p95 (SC-003) + `systemctl show ... MemoryCurrent` 로 모니터링.
+  - 한계 다시 필요 시 R-027b — 측정 후 적정값 (testnet ≥ 500MB / mainnet 1GB+) 으로 재적용.
+- **systemd 격리** (R-026 + R-027 정정 2026-06-08):
+  - 사용자 운영 표준 (R-027): simplified unit — `User=admin/ubuntu`, `WorkingDirectory`, `ExecStart`, `Restart=on-failure`, **`ReadOnlyPaths=/home/<user>/v-publisher`** (Constitution II 핵심), `LimitNOFILE=65536`. 다른 sandbox / cgroup directive 모두 제거.
+  - R-026 표준 운영 (`--log-dir log` 사용 시 publisher home 의 `log/<component>/`) 에서는 옛 `PrivateTmp=no` (옛 R-001 fallback 보호) 도 불필요.
+  - 옛 hardened 형태 (NoNewPrivileges/ProtectSystem/MemoryDenyWriteExecute 등 다수 sandbox) 는 README "Hardened systemd alternative" 섹션에 참고용으로 보존 — defense-in-depth 가 필요한 환경에서 옵션.
   - systemd dbus property 조회 시 `MainPID`/`NRestarts` 는 `Service` interface 에서 (`GetUnitTypePropertiesContext`). `Unit` interface 로는 None 반환.
 - **Alertmanager 분기 정책**: critical 6 룰은 mainnet 한정 (`network!="testnet"` matcher). 동일 expr 의 `<Name>Testnet` 복제가 alertLevel=high 로 따로 발화 — PagerDuty 노이즈 차단.
 

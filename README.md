@@ -235,12 +235,15 @@ The exporter is built so a single binary serves both networks. Differences are a
 **Prep (when HF announces the mainnet binary URL, R-006):**
 
 1. Copy `env/vpub-exporter.env.mainnet.example` to `/etc/vpub-exporter.env`. Fill: `/home/ubuntu/v-publisher` paths, 7 Arbitrum RPCs, Slack token, channel ID, R-006 binary URL.
-2. Install the `ubuntu`-user drop-in (raises MemoryMax to 400M for the ~10× mainnet log throughput):
+2. Install the simplified systemd unit (R-027 — drop the old MemoryMax/CPUQuota/sandbox layers and just keep `User/WorkingDirectory/ExecStart/Restart/ReadOnlyPaths/LimitNOFILE`). For mainnet sed the user from `admin` to `ubuntu`:
    ```bash
-   sudo install -D -m 0644 systemd/mainnet.conf \
-     /etc/systemd/system/vpub-exporter.service.d/mainnet.conf
+   sudo install -D -m 0644 systemd/vpub-exporter.service \
+     /etc/systemd/system/vpub-exporter.service
+   sudo sed -i 's|/home/admin|/home/ubuntu|g; s|^User=admin|User=ubuntu|; s|^Group=admin|Group=ubuntu|' \
+     /etc/systemd/system/vpub-exporter.service
    sudo systemctl daemon-reload
    ```
+   (The old `systemd/mainnet.conf` drop-in with `MemoryMax=400M` was removed in R-027 — the Go runtime startup memory hit that cgroup limit and looped on fork EAGAIN. We will reintroduce a `MemoryMax` only after 24h+ of mainnet field measurement, with a value safely above observed RSS.)
 3. Add `monitoring/agents/Main_hyperliquid_VPUB_<region>.toml` (replace `<MAINNET_IP>`) and open a PR against your monitoring repo.
 4. Cross-compile or build on the host (same `make build-linux`); install under `/home/ubuntu/vpub-exporter/bin/vpub-exporter`.
 5. **PagerDuty dry-run** before going live — temporarily route `alertLevel="critical"` to a test channel, stop the publisher for 30s, confirm `VpubServiceDown` fires, then restore the PagerDuty route. See `specs/001-vpub-exporter/quickstart.md § QS-2.1p`.

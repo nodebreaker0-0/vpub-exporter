@@ -208,6 +208,7 @@
 - [x] **R-005c (2026-05-25, HF 답신)** — mainnet bridge voter quorum = **4/7 + ≤1 disagreement per vote**. 본 문서 § R-005c 참조. `VpubBridgeRpcMajorityDown` 정확. `VpubBridgeRpcDisagreement` 임계 완화 필요 — L1 upgrade 후 R-021 와 동시 적용.
 - [x] **R-013 (2026-06-06, mainnet 2.6h 확정)** — publisher 가 "disagreement" 단어를 **절대 안 찍는다** (mainnet bridge-voter 23,233 라인 + testnet 9.7h 0건). 옛 `vpub_bridge_rpc_disagreement_total` 메트릭은 사실 `WARN ... RPC failed ... provider="X" ... status NNN` (provider HTTP error) 의 카운터였음. **메트릭 rename**: `vpub_bridge_rpc_disagreement_total` → `vpub_bridge_rpc_provider_fail_total{name, status_code}`. **알람 삭제**: `VpubBridgeRpcDisagreement{,Testnet}` (false positive 보장 — drpc 500 + chainstack 403 정상 운영 시에도 매 50초~5분에 1회 firing). 실제 vote 실패 시그널 = `vpub_bridge_vote_total{status="fail"}` + `VpubBridgeStaleVote` 로 이미 충분.
 - [x] **R-024 (2026-06-06, mainnet 2.6h 확정)** — bridge ok counter 의 정정. 옛 R-003 결정 ("scanned 라인은 cumulative summary 라 counter X, gauge 만") 은 가정 부정확. **mainnet 실측 결과: scanned 라인의 `votes_sent=N` 은 그 한 scan 의 vote 수 (cumulative 아님)**. 캡쳐 그룹 추출 → `counter.Add(N)` 이 정확. votes_sent=0 인 idle scan 은 skip (counter / last_vote 둘 다 안 갱신). oracle fail 패턴도 정정: 옛 `[45]xx response` 는 HF response status=200 인데 data "Missing price" 거대 array 인 케이스 못 잡음. **publisher CRIT 라인** (`CRIT reference_oracle_publisher: critical error failed to publish oracle action`) 이 정확한 fail signal.
+- [x] **R-027 (2026-06-08, systemd unit hardening 과 cgroup EAGAIN)** — testnet vpub-exporter 가 `status=203/EXEC` + `Resource temporarily unavailable` 로 ~913회 restart 반복. 시스템 자원 충분 (49Gi free, 948 threads), binary manual run OK, 그러나 systemd 만 fork/exec EAGAIN. 원인: cowork base unit 의 `MemoryMax=200M` cgroup 한계 — v0.3.1 Go binary startup 메모리가 도달 → fork 시점 EAGAIN. 해결: simplified unit (User/Group/WorkingDirectory/ExecStart/Restart/ReadOnlyPaths/LimitNOFILE 만) 으로 교체. MemoryMax/CPUQuota/대다수 sandbox (NoNewPrivileges, ProtectSystem, ProtectHome, MemoryDenyWriteExecute 등) 제거. Constitution II = `ReadOnlyPaths=/home/admin/v-publisher` 만으로 유지. 본 문서 § R-027 참조.
 - [x] **R-026 (2026-06-06, HF 공식 README 확인)** — `https://binaries.hyperliquid-testnet.xyz/validator-publisher/README.md` 정독으로 옛 R-001 의 핵심 가정 ("visor 가 child 로그를 hard-coded `/tmp/validator-publisher/<component>/<date>` 에 쓴다") 가 **부정확** 확인. 실제: `--log-dir <path>` **optional**, 명시 시 visor + 4 child 모두 `<path>/<component>/YYYYMMDD`. 사용자 운영 실측 `--log-dir log` (relative, publisher cwd 기준) 이라 `/home/admin(ubuntu)/v-publisher/log/{visor,bridge-voter,reference-oracle-publisher,outcome-voter}/<date>`. cowork default 값 갱신 + R-001 폐기 + 새 사실 백포트 (data-model, constitution, README, env.example). 본 문서 § R-026 참조.
 - [x] **R-025 (2026-06-06, mainnet 가동 직후 false positive 발견)** — 두 결함이 결합되어 testnet `vpub:binary:child:download_failed` 알람 false positive 발화:
   - **결함 (1)**: 새 publisher build 가 module path prefix (`validator_publisher::visor::`) 추가 — 옛 `INFO  visor:` 만 매칭하던 `VisorDownloadPattern` / `VisorChildRestartPattern` / `VisorCritPattern` 정규식 매칭 X. 새 라인 모두 누락.
@@ -504,6 +505,65 @@ resendDuration = "1h"   ← 1h 마다 재전송
    - 3차: 알람 라벨 dump (`| jq '.labels'`) 으로 network/instance 빠진 거 있는지 확인
 3. 룰에 aggregation (`sum by`, `count by`, `max by` 등) 쓸 때 반드시 라우팅 키 (`network`, `instance`, `chain`) 포함 (R-023 fix 일관성)
 4. alertmanager.toml 의 Slack resendDuration 은 30m 또는 1h 권장 (현재 30m 으로 변경됨). 24h 는 stuck risk 명확.
+
+---
+
+## R-027 — systemd unit hardening 의 cgroup EAGAIN (2026-06-08)
+
+**증상**: testnet `vpub-exporter.service` 가 `status=203/EXEC` + 메시지 `vpub-exporter.service: Failed to execute /home/admin/vpub-exporter/bin/vpub-exporter: Resource temporarily unavailable` 로 5초 간격 무한 restart (counter 913).
+
+**진단 결과**:
+- 시스템 자원 정상 — 메모리 49Gi free / 115Gi available, threads 948, loadavg 0.09
+- binary 직접 실행 OK — `sudo -u admin /home/admin/vpub-exporter/bin/vpub-exporter --help` 정상 출력
+- → systemd 단위 한정 fork/exec EAGAIN. unit 의 cgroup/sandbox 한계가 원인.
+
+**핵심 원인**: cowork base unit 의 `MemoryMax=200M` cgroup limit.
+- v0.3.1 Go binary 의 startup 메모리가 200MB 한계 도달
+- fork() 호출 시점에 cgroup memory.max 초과 직전 → kernel 이 EAGAIN 반환
+- systemd 가 그대로 status 203/EXEC 으로 처리
+- (옛 R-019b 의 testnet 100MB / mainnet 400MB 분기 의도와 충돌. testnet 의 v0.3.1 는 옛 100~200MB 가정보다 큼.)
+
+**해결**: simplified systemd unit 으로 교체 (사용자 운영 표준).
+
+기존 hardened unit 의 다수 directive 제거:
+- `MemoryMax` / `CPUQuota` / `TasksMax` — cgroup 한계 모두 제거
+- `NoNewPrivileges` / `ProtectSystem` / `ProtectHome` / `PrivateDevices`
+- `ProtectKernelTunables` / `ProtectKernelModules` / `ProtectControlGroups`
+- `RestrictSUIDSGID` / `RestrictRealtime` / `LockPersonality`
+- `MemoryDenyWriteExecute` / `SystemCallArchitectures`
+- `PrivateTmp=no` (옛 fallback 보호) — 제거 (R-026 표준 운영에서 `--log-dir log` 사용이라 `/tmp/validator-publisher` read 불필요)
+- `LimitNPROC=512` — 제거
+
+유지:
+- `User=admin` / `Group=admin` (publisher 와 동일 user — log read 권한)
+- `WorkingDirectory` / `EnvironmentFile`
+- `ExecStart`
+- `Restart=on-failure` / `RestartSec=5s`
+- `ReadOnlyPaths=/home/admin/v-publisher` ← **Constitution II 핵심 invariant 유지**
+- `LimitNOFILE=65536`
+
+**보안 평가**:
+- READ-ONLY 보장 (Constitution II): `ReadOnlyPaths` 로 publisher 트리 모든 file 변형 차단. 다른 sandbox 가 빠져도 이 한 줄이 핵심.
+- 그 외 sandbox (NoNewPrivileges, ProtectSystem 등) 제거는 defense-in-depth layer 감소 — 다만 단일 unit 의 attack surface 자체가 작음 (read-only binary + admin user + ReadOnlyPaths).
+- env 파일 mode 0600 + secret 미logged (Constitution IV) 는 unit 외부에서 보장.
+
+**Operational Constraint 영향 (Constitution Operational Constraints)**:
+- 옛 spec: testnet RSS ≤ 100MB / mainnet RSS ≤ 400MB; CPU ≤ 5% (testnet) / 20% (mainnet)
+- 새 운영: cgroup 한계 없음 — soft constraint (모니터링만)
+- 측정: `vpub_exporter_collection_duration_seconds_*` (SC-003) + `MemoryCurrent` (systemd) 로 추적
+- 한계 도달 시 → 다시 cgroup 적용 검토 (이번엔 testnet 도 ≥ 500MB 또는 unlimited)
+
+**Mainnet 적용 결정**:
+- 사용자가 mainnet 도 동일 simplified unit 으로 교체 (단 `User=ubuntu`, `WorkingDirectory=/home/ubuntu/...`, `ReadOnlyPaths=/home/ubuntu/v-publisher`).
+- mainnet 머신은 옛 drop-in 으로 MemoryMax=400M 이었으나 같은 단순화 정책 적용.
+
+**Files updated**:
+- `systemd/vpub-exporter.service` — simplified base unit
+- `.specify/memory/constitution.md` — Operational Constraints / systemd 격리 항목 정정
+- `README.ko.md` / `README.md` — systemd unit 표 + "Hardened alternative" 메모
+- `specs/001-vpub-exporter/spec.md` — Operational Constraints (SC-003 측정 방식 유지)
+
+**Pending**: 24h+ 운영 후 RSS / CPU 실측. 한계 다시 적용 필요 시 R-027b.
 
 ---
 

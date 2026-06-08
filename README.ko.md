@@ -175,11 +175,13 @@ curl -s localhost:8002/metrics | grep -E '^vpub_(service_up|child_count|componen
 
 ### systemd unit ([`systemd/vpub-exporter.service`](systemd/vpub-exporter.service))
 
-핵심 보안 설정:
-- `User=admin` / `Group=admin` (publisher 와 동일 user — log read 권한)
-- `ProtectSystem=full` / `ProtectHome=read-only` / `ReadOnlyPaths=/home/admin/v-publisher` — publisher 파일 변형 차단
-- `PrivateTmp=no` — `--log-dir` 생략 운영 (옛 R-001 fallback) 또는 ref-oracle 의 `<tmp-dir>/reference-oracle-publisher/...` liner read 시 필수. 표준 운영 (R-026, `--log-dir log`) 에서는 직접 영향 없지만 안전망으로 유지.
-- `NoNewPrivileges` / `MemoryMax=200M` / `CPUQuota=20%` — Constitution Operational Constraints
+핵심 설정 (R-027 simplified 운영 표준):
+- `User=admin` / `Group=admin` (publisher 와 동일 user — log read 권한). mainnet 은 `User=ubuntu`.
+- **`ReadOnlyPaths=/home/admin/v-publisher`** — Constitution II 핵심 invariant. publisher 트리 변형 차단.
+- `Restart=on-failure` / `RestartSec=5s` — robust auto-restart
+- `LimitNOFILE=65536` — RPC/slack/log tail 동시 open 마진
+
+**제거된 directive (R-027 운영 발견)**: `MemoryMax` / `CPUQuota` / 다수 sandbox (NoNewPrivileges, ProtectSystem, ProtectHome, PrivateDevices, ProtectKernel*, RestrictSUIDSGID, LockPersonality, MemoryDenyWriteExecute, SystemCallArchitectures). 옛 `MemoryMax=200M` 이 Go binary startup memory 와 충돌해 fork EAGAIN 무한 restart 유발 (testnet 2026-06-08 실측). 다른 sandbox 도 일부 환경에서 같은 issue. 운영 안정성 우선 — defense-in-depth 가 필요한 환경에서 옛 hardened 형태는 `systemd/` 의 git 이력에서 참조 가능.
 
 ---
 
@@ -385,11 +387,16 @@ R-019b (2026-05-24 사용자 보고) — mainnet 환경 차이 3건은 모두 **
 **준비 (HF mainnet binary 가동 직전, R-006 announce 이후)**:
 
 1. `env/vpub-exporter.env.mainnet.example` 복사 → `/etc/vpub-exporter.env` 작성. `/home/ubuntu/v-publisher` 경로 + 7 Arbitrum RPC + Slack token / channel 채우기
-2. systemd drop-in 적용 (ubuntu user / MemoryMax 400M):
+2. systemd unit 적용 (R-027 simplified — User/WorkingDirectory/ReadOnlyPaths 만 mainnet 으로 변경):
    ```bash
-   sudo install -D -m 0644 systemd/mainnet.conf /etc/systemd/system/vpub-exporter.service.d/mainnet.conf
+   # base unit 복사 후 testnet 값을 ubuntu 로 sed
+   sudo install -D -m 0644 systemd/vpub-exporter.service /etc/systemd/system/vpub-exporter.service
+   sudo sed -i 's|/home/admin|/home/ubuntu|g; s|^User=admin|User=ubuntu|; s|^Group=admin|Group=ubuntu|' \
+     /etc/systemd/system/vpub-exporter.service
    sudo systemctl daemon-reload
+   sudo systemctl enable --now vpub-exporter
    ```
+   (옛 `systemd/mainnet.conf` drop-in 의 MemoryMax=400M 정책은 R-027 로 제거 — Go binary startup 의 fork EAGAIN 회귀 위험. 운영 24h+ 후 RSS 측정 결과로 재적용 결정.)
 3. `monitoring/agents/Main_hyperliquid_VPUB_apn1.toml` 의 `<MAINNET_IP>` 치환 → monitoring 레포 PR
 4. linux/amd64 binary install `/home/ubuntu/vpub-exporter/bin/vpub-exporter`
 5. **PagerDuty dry-run** (`quickstart.md QS-2.1p`) — testalrt 채널로 라우팅 일시 전환 → `systemctl stop validator-publisher` 30s → `VpubServiceDown` (critical) testalrt 에 firing 확인 → alertmanager 원복
@@ -602,7 +609,7 @@ publisher 머신 (LSN-D13958 등)
 - `os.Open` / `os.Stat` / `os.ReadDir` 만 사용 (write API X)
 - systemd: `GetUnitPropertiesContext` / `GetUnitTypePropertiesContext` 만 (`StartUnit`/`StopUnit` 사용 안 함)
 - Slack: `auth.test` / `conversations.history` (read API 만)
-- systemd unit `ProtectSystem=full` + `ReadOnlyPaths=/home/admin/v-publisher` 추가 방어
+- systemd unit `ReadOnlyPaths=/home/admin/v-publisher` (R-027 simplified: ProtectSystem 제거, ReadOnlyPaths 만 유지)
 
 ---
 
@@ -656,7 +663,7 @@ Tier 0 MVP 가동 검증:
 | **SC-002** child kill detect (재정의) | ✅ 합격 | publisher 가 child kill 후 1-3초 즉시 재spawn → `VpubChildMissing` 발화 0건 = 안전망 룰 정상 |
 | **SC-003** `/metrics` p95 < 200ms | ✅ 합격 | 실측 ~4ms (목표의 2%) |
 | **SC-004** RSS < 100MB, CPU < 5% | ✅ 합격 | 실측 RSS 8.7MB |
-| **SC-005** Read-only 보존 | ✅ 합격 | publisher 파일 변경 0 (systemd `ProtectSystem=full` + `ReadOnlyPaths`) |
+| **SC-005** Read-only 보존 | ✅ 합격 | publisher 파일 변경 0 (systemd `ReadOnlyPaths=/home/<user>/v-publisher` — R-027 simplified) |
 | **SC-006** 1개월 down 감지율 100% | ⏳ 운영 누적 중 | |
 | **SC-007** 1주일 false-positive < 10% | ⏳ 운영 누적 중 | testnet 자연 false-positive 룰들 이미 mainnet only 로 분기 완료 |
 | **SC-008** Tier 0 PR → 배포 < 24h | ✅ 합격 | 같은 날 가동 완료 |

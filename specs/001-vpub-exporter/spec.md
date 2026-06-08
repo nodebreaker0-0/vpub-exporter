@@ -150,7 +150,7 @@
 - monitoring 레포 외에 별도 ansible role 은 본 PR 범위 밖. 일단 빌드 산출물(바이너리 + systemd unit + env 템플릿) 만 제공, 배포는 후속 PR 또는 수동.
 - **운영 발견 (2026-05-23 LSN-D13958 testnet 가동)**:
   - systemd dbus `MainPID`/`NRestarts` 는 `org.freedesktop.systemd1.Service` interface 에 있음 (Unit 아님). `GetUnitTypePropertiesContext(unit, "Service")` 분리 호출 필수.
-  - systemd unit 의 `PrivateTmp=yes` 는 publisher 의 `/tmp/validator-publisher/` 격리. 반드시 `PrivateTmp=no` 사용 (publisher 의 `v-publisher.service.full` 도 동일).
+  - **R-027 simplified unit (2026-06-08)**: 옛 sandbox 다수 + `MemoryMax=200M` 제거 (testnet 의 fork EAGAIN 무한 restart 원인). 유지: `User/Group=admin(ubuntu)`, `WorkingDirectory`, `ExecStart`, `Restart=on-failure`, **`ReadOnlyPaths=/home/<user>/v-publisher`** (Constitution II 핵심), `LimitNOFILE=65536`. `PrivateTmp=no` 도 R-026 표준 운영 (`--log-dir log`) 에서는 불필요 — 제거됨.
   - critical 알람은 mainnet 한정 + testnet 은 `<Name>Testnet` (alertLevel=high) 로 분기 — PagerDuty noise 차단.
   - `VpubLogStale`/`Long` 의 `component` 라벨에서 `visor` 제외 — spawn manager 라 자체 로그 빈도 매우 낮아 false-positive.
   - `VpubBridgeStaleVote` mainnet 한정 — testnet 입금 트래픽 0건이라 영구 발화.

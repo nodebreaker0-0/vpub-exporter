@@ -23,14 +23,21 @@ import (
 type BridgeStateCollector struct {
 	path string
 
-	lastBlock prometheus.Gauge
-	mtime     prometheus.Gauge
+	lastBlock      prometheus.Gauge
+	mtime          prometheus.Gauge
+	explorerCursor *prometheus.GaugeVec // {explorer} — diagnostic, per-explorer cursor
 }
 
-// stateDoc mirrors the on-disk JSON. We deserialize only the integer field we
-// need; the larger `transactions` map is ignored (and never logged).
+// stateDoc mirrors the on-disk JSON. We deserialize only the fields we need;
+// the larger `transactions` map is ignored (and never logged).
+//
+// Format (publisher upgrade ~2026-07 switched RPC scanning to explorer
+// scanning): {"explorer_cursors": {"etherscan": N, "blockscout": N}, "transactions": {}}
+// The old {"last_scanned_block": N} scalar is no longer emitted, so we parse
+// only explorer_cursors.
 type stateDoc struct {
-	LastScannedBlock int64 `json:"last_scanned_block"`
+	// Per-explorer scan cursors (etherscan/blockscout).
+	ExplorerCursors map[string]int64 `json:"explorer_cursors"`
 }
 
 // maxStateFileSize bounds how much we read so a runaway state.json (e.g.
@@ -44,7 +51,7 @@ func NewBridgeStateCollector(reg prometheus.Registerer, path string) *BridgeStat
 			Namespace: MetricNamespace,
 			Subsystem: "bridge",
 			Name:      "state_last_scanned_block",
-			Help:      "Last Arbitrum block scanned by bridge-voter (from state.json). FR-012a — strongest bridge progress signal.",
+			Help:      "Lowest explorer scan cursor from state.json (min across explorer_cursors). FR-012a — strongest bridge progress signal.",
 		}),
 		mtime: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: MetricNamespace,
@@ -52,8 +59,14 @@ func NewBridgeStateCollector(reg prometheus.Registerer, path string) *BridgeStat
 			Name:      "state_mtime_unix",
 			Help:      "Unix seconds mtime of bridge-voter-<chain>-state.json. FR-012a.",
 		}),
+		explorerCursor: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: MetricNamespace,
+			Subsystem: "bridge",
+			Name:      "state_explorer_cursor",
+			Help:      "Per-explorer scan cursor from state.json explorer_cursors (etherscan/blockscout). FR-012a (diagnostic).",
+		}, []string{"explorer"}),
 	}
-	reg.MustRegister(c.lastBlock, c.mtime)
+	reg.MustRegister(c.lastBlock, c.mtime, c.explorerCursor)
 	return c
 }
 
@@ -84,7 +97,22 @@ func (c *BridgeStateCollector) Tick(_ context.Context) (ErrorKind, error) {
 	if err := json.NewDecoder(io.LimitReader(f, maxStateFileSize)).Decode(&doc); err != nil {
 		return KindParse, fmt.Errorf("decode %s: %w", c.path, err)
 	}
-	c.lastBlock.Set(float64(doc.LastScannedBlock))
+	if len(doc.ExplorerCursors) == 0 {
+		// No cursors = unexpected shape (format changed again?). Surface loudly
+		// via the error counter instead of silently zeroing the gauge.
+		return KindParse, fmt.Errorf("%s: no explorer_cursors in state file", c.path)
+	}
+	// last_scanned_block gauge = the slowest explorer (min): if any explorer
+	// stalls, the gauge stalls and VpubBridgeStateStuck fires.
+	minCur := int64(0)
+	first := true
+	for name, cur := range doc.ExplorerCursors {
+		c.explorerCursor.WithLabelValues(name).Set(float64(cur))
+		if first || cur < minCur {
+			minCur, first = cur, false
+		}
+	}
+	c.lastBlock.Set(float64(minCur))
 	return "", nil
 }
 

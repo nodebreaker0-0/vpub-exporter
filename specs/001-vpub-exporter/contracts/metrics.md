@@ -78,10 +78,18 @@
 ### `vpub_bridge_state_last_scanned_block`
 - **Type**: Gauge (int)
 - **Labels**: 없음
-- **Source**: `~/v-publisher/bridge-voter-<chain>-state.json` 의 `last_scanned_block` 필드 (JSON parse). 파일 read-only.
+- **Source**: `~/v-publisher/bridge-voter-<chain>-state.json` 의 `explorer_cursors` (etherscan/blockscout) 중 **min** (JSON parse). 파일 read-only. (~2026-07 publisher 업그레이드로 구 `last_scanned_block` 스칼라 → explorer 별 cursor 로 스키마 변경. 메트릭 이름/의미는 유지 — 가장 뒤처진 explorer 기준이라 하나라도 정체 시 발화.)
 - **Refresh**: 30s
 - **FR**: FR-012a
 - **Meaning**: bridge voter 가 Arbitrum 을 어디까지 스캔했는지 직접 값. PromQL `delta([5m]) == 0` → 진행 멈춤 = 매우 강한 health 시그널 (로그 mtime 보다 robust).
+
+### `vpub_bridge_state_explorer_cursor`
+- **Type**: Gauge (int)
+- **Labels**: `explorer` (etherscan / blockscout)
+- **Source**: 위 state json 의 `explorer_cursors` map 각 항목
+- **Refresh**: 30s
+- **FR**: FR-012a
+- **Meaning**: explorer 별 스캔 cursor. 진단용 (어느 explorer 가 뒤처지는지 식별). 알람 미사용 — 알람은 위 min 게이지가 담당.
 
 ### `vpub_bridge_state_mtime_unix`
 - **Type**: Gauge (unix sec)

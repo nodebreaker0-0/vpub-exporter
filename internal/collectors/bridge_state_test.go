@@ -11,10 +11,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
+// writeState writes the new (explorer_cursors) format with both explorers at
+// the same cursor, so min == block and the lastBlock assertions stay simple.
 func writeState(t *testing.T, dir, name string, block int64, mtime time.Time) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
-	body := []byte(`{"last_scanned_block": ` + itoa(block) + `, "transactions": {"0xabc": "queued"}}`)
+	body := []byte(`{"explorer_cursors": {"etherscan": ` + itoa(block) + `, "blockscout": ` + itoa(block) + `}, "transactions": {}}`)
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +85,53 @@ func TestBridgeState_BlockAdvances(t *testing.T) {
 	}
 	if v := testutil.ToFloat64(c.mtime); v != float64(later.Unix()) {
 		t.Errorf("mtime = %v, want %d", v, later.Unix())
+	}
+}
+
+func TestBridgeState_ExplorerCursorsMin(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Unix(1_700_000_000, 0)
+	path := filepath.Join(dir, "bridge-voter-mainnet-state.json")
+	body := []byte(`{"explorer_cursors": {"etherscan": 500, "blockscout": 480}, "transactions": {}}`)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, now, now); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := prometheus.NewRegistry()
+	c := NewBridgeStateCollector(reg, path)
+	if _, err := c.Tick(context.Background()); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if v := testutil.ToFloat64(c.lastBlock); v != 480 {
+		t.Errorf("lastBlock = %v, want 480 (min of cursors)", v)
+	}
+	if v := testutil.ToFloat64(c.explorerCursor.WithLabelValues("etherscan")); v != 500 {
+		t.Errorf("etherscan cursor = %v, want 500", v)
+	}
+	if v := testutil.ToFloat64(c.explorerCursor.WithLabelValues("blockscout")); v != 480 {
+		t.Errorf("blockscout cursor = %v, want 480", v)
+	}
+}
+
+func TestBridgeState_NoExplorerCursors(t *testing.T) {
+	// Valid JSON but missing explorer_cursors (e.g. another format change) must
+	// surface as a parse error, not a silent zero.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bridge-voter-mainnet-state.json")
+	if err := os.WriteFile(path, []byte(`{"transactions": {}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := prometheus.NewRegistry()
+	c := NewBridgeStateCollector(reg, path)
+	kind, err := c.Tick(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if kind != KindParse {
+		t.Errorf("kind = %q, want parse", kind)
 	}
 }
 

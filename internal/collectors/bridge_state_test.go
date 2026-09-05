@@ -12,7 +12,7 @@ import (
 )
 
 // writeState writes the new (explorer_cursors) format with both explorers at
-// the same cursor, so min == block and the lastBlock assertions stay simple.
+// the same cursor, so max == block and the lastBlock assertions stay simple.
 func writeState(t *testing.T, dir, name string, block int64, mtime time.Time) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -88,7 +88,7 @@ func TestBridgeState_BlockAdvances(t *testing.T) {
 	}
 }
 
-func TestBridgeState_ExplorerCursorsMin(t *testing.T) {
+func TestBridgeState_ExplorerCursorsMax(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Unix(1_700_000_000, 0)
 	path := filepath.Join(dir, "bridge-voter-mainnet-state.json")
@@ -105,8 +105,8 @@ func TestBridgeState_ExplorerCursorsMin(t *testing.T) {
 	if _, err := c.Tick(context.Background()); err != nil {
 		t.Fatalf("Tick: %v", err)
 	}
-	if v := testutil.ToFloat64(c.lastBlock); v != 480 {
-		t.Errorf("lastBlock = %v, want 480 (min of cursors)", v)
+	if v := testutil.ToFloat64(c.lastBlock); v != 500 {
+		t.Errorf("lastBlock = %v, want 500 (max of cursors)", v)
 	}
 	if v := testutil.ToFloat64(c.explorerCursor.WithLabelValues("etherscan")); v != 500 {
 		t.Errorf("etherscan cursor = %v, want 500", v)

@@ -51,7 +51,7 @@ func NewBridgeStateCollector(reg prometheus.Registerer, path string) *BridgeStat
 			Namespace: MetricNamespace,
 			Subsystem: "bridge",
 			Name:      "state_last_scanned_block",
-			Help:      "Lowest explorer scan cursor from state.json (min across explorer_cursors). FR-012a — strongest bridge progress signal.",
+			Help:      "Highest explorer scan cursor from state.json (max across explorer_cursors). FR-012a — strongest bridge progress signal.",
 		}),
 		mtime: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: MetricNamespace,
@@ -102,17 +102,20 @@ func (c *BridgeStateCollector) Tick(_ context.Context) (ErrorKind, error) {
 		// via the error counter instead of silently zeroing the gauge.
 		return KindParse, fmt.Errorf("%s: no explorer_cursors in state file", c.path)
 	}
-	// last_scanned_block gauge = the slowest explorer (min): if any explorer
-	// stalls, the gauge stalls and VpubBridgeStateStuck fires.
-	minCur := int64(0)
+	// last_scanned_block gauge = the furthest explorer (max): the bridge is
+	// still making progress as long as ANY explorer advances, so a single
+	// lagging/broken explorer must not fire VpubBridgeStateStuck. Only a stall
+	// across every explorer freezes the gauge. Per-explorer lag is visible via
+	// the explorerCursor gauge below.
+	maxCur := int64(0)
 	first := true
 	for name, cur := range doc.ExplorerCursors {
 		c.explorerCursor.WithLabelValues(name).Set(float64(cur))
-		if first || cur < minCur {
-			minCur, first = cur, false
+		if first || cur > maxCur {
+			maxCur, first = cur, false
 		}
 	}
-	c.lastBlock.Set(float64(minCur))
+	c.lastBlock.Set(float64(maxCur))
 	return "", nil
 }
 
